@@ -23,7 +23,7 @@ spec:
         - name: ghcr-secret
       containers:
         - name: finance-service
-          image: ghcr.io/mutugading/goapps-backend/finance-service:latest
+          image: ghcr.io/mutugading/finance-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 50051
