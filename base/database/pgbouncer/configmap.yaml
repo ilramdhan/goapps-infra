@@ -13,3 +13,4 @@ data:
   LOG_CONNECTIONS: "1"
   LOG_DISCONNECTIONS: "1"
   STATS_PERIOD: "60"
+  AUTH_TYPE: "scram-sha-256"
