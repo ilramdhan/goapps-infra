@@ -11,5 +11,5 @@ patches:
   - path: patches/resources.yaml
 
 images:
-  - name: ghcr.io/mutugading/goapps-backend/finance-service
+  - name: ghcr.io/mutugading/finance-service
     newTag: latest  # Use latest (main branch) for production

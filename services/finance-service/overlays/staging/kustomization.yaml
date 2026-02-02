@@ -11,5 +11,5 @@ patches:
   - path: patches/resources.yaml
 
 images:
-  - name: ghcr.io/mutugading/goapps-backend/finance-service
+  - name: ghcr.io/mutugading/finance-service
     newTag: main  # Use main branch tag (pushed by CI)
