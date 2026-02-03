@@ -193,7 +193,7 @@
             "type": "stat",
             "targets": [
                 {
-                    "expr": "avg(container_memory_usage_bytes{namespace=\"$namespace\"} / container_spec_memory_limit_bytes{namespace=\"$namespace\"}) * 100",
+                    "expr": "sum(container_memory_usage_bytes{namespace=\"$namespace\", container!=\"\", container!=\"POD\"}) / 1024 / 1024",
                     "refId": "A"
                 }
             ]
@@ -340,7 +340,7 @@
             "type": "timeseries",
             "targets": [
                 {
-                    "expr": "rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"export-svc.*\", container!=\"\"}[5m]) * 1000",
+                    "expr": "rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod!=\"\", container!=\"\", container!=\"POD\"}[5m]) * 1000",
                     "legendFormat": "{{pod}}",
                     "refId": "A"
                 }
@@ -422,7 +422,7 @@
             "type": "timeseries",
             "targets": [
                 {
-                    "expr": "container_memory_usage_bytes{namespace=\"$namespace\", pod=~\"export-svc.*\", container!=\"\"}",
+                    "expr": "container_memory_usage_bytes{namespace=\"$namespace\", pod!=\"\", container!=\"\", container!=\"POD\"}",
                     "legendFormat": "{{pod}}",
                     "refId": "A"
                 }
