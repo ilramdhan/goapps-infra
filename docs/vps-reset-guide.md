@@ -586,11 +586,25 @@ Akses ArgoCD via Ingress (setelah Step 13):
 
 ## Step 11: Apply ArgoCD Applications
 
+> **IMPORTANT:** Apply ONLY the apps for your current environment!
+
+### Untuk STAGING VPS:
 ```bash
-kubectl apply -f argocd/apps/
+kubectl apply -f argocd/apps/shared/
+kubectl apply -f argocd/apps/staging/
 kubectl apply -f argocd/projects/
 
-# Cek status
+# Cek status - should only show staging apps
+kubectl get applications -n argocd
+```
+
+### Untuk PRODUCTION VPS:
+```bash
+kubectl apply -f argocd/apps/shared/
+kubectl apply -f argocd/apps/production/
+kubectl apply -f argocd/projects/
+
+# Cek status - should only show production apps
 kubectl get applications -n argocd
 ```
 

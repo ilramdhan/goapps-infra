@@ -1,0 +1,22 @@
+# ArgoCD Application - Frontend Production
+# NOTE: No automated sync for production safety - manual approval required
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: frontend-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: goapps
+  source:
+    repoURL: https://github.com/mutugading/goapps-infra.git
+    targetRevision: main
+    path: services/frontend/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: goapps-production
+  syncPolicy:
+    # No automated sync for production - manual approval required
+    syncOptions:
+      - CreateNamespace=true
