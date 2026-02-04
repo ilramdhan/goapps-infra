@@ -72,7 +72,7 @@ spec:
                   number: 9090
 
 ---
-# MinIO Console Ingress - NO auth, NO configuration-snippet
+# MinIO Console Ingress - configured per MinIO official documentation
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -84,6 +84,11 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket support for MinIO Console
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # Fix CORS issues in Kubernetes + Nginx Ingress
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
 spec:
   ingressClassName: nginx
   tls:
