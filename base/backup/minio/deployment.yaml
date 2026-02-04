@@ -74,9 +74,9 @@ spec:
           secret:
             secretName: minio-tls
             items:
-              - key: tls.crt
+              - key: public.crt
                 path: public.crt
-              - key: tls.key
+              - key: private.key
                 path: private.key
 ---
 apiVersion: v1
