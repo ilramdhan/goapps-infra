@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# NOTE: MinIO has been moved to separate ArgoCD app (infra-minio)
+# to keep it in 'minio' namespace while backup CronJobs stay in 'database' namespace
 resources:
-  - minio
   - cronjobs
 
 commonLabels:

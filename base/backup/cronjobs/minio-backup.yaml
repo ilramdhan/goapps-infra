@@ -65,7 +65,7 @@ spec:
                 - name: ENVIRONMENT
                   value: "production"
                 - name: MINIO_ENDPOINT
-                  value: "minio.database:9000"
+                  value: "minio.minio:9000"
                 - name: MINIO_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
@@ -77,7 +77,7 @@ spec:
                       name: minio-secret
                       key: MINIO_ROOT_PASSWORD
                 - name: MINIO_USE_SSL
-                  value: "true"
+                  value: "false"
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backup
