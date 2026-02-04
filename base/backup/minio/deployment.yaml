@@ -1,5 +1,6 @@
-# MinIO Object Storage
+# MinIO Object Storage with TLS
 # Used for local backups and file storage
+# HTTPS enabled via TLS certificates mounted to /root/.minio/certs/
 
 apiVersion: apps/v1
 kind: Deployment
@@ -26,6 +27,8 @@ spec:
             - /data
             - --console-address
             - ":9001"
+            - --certs-dir
+            - /root/.minio/certs
           ports:
             - containerPort: 9000
               name: api
@@ -46,22 +49,35 @@ spec:
           volumeMounts:
             - name: minio-data
               mountPath: /data
+            - name: minio-certs
+              mountPath: /root/.minio/certs
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /minio/health/live
               port: 9000
+              scheme: HTTPS
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /minio/health/ready
               port: 9000
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 5
       volumes:
         - name: minio-data
           persistentVolumeClaim:
             claimName: minio-data
+        - name: minio-certs
+          secret:
+            secretName: minio-tls
+            items:
+              - key: tls.crt
+                path: public.crt
+              - key: tls.key
+                path: private.key
 ---
 apiVersion: v1
 kind: Service
