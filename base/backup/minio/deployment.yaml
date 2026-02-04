@@ -82,6 +82,28 @@ spec:
   selector:
     app: minio
 ---
+# NodePort service for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-nodeport
+  namespace: minio
+  labels:
+    app: minio
+spec:
+  type: NodePort
+  ports:
+    - port: 9001
+      targetPort: 9001
+      nodePort: 30090
+      name: console
+    - port: 9000
+      targetPort: 9000
+      nodePort: 30091
+      name: api
+  selector:
+    app: minio
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
