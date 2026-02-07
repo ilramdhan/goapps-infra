@@ -1,0 +1,17 @@
+# Staging: Lower resource limits
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: iam-service
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

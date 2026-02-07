@@ -1,0 +1,86 @@
+# IAM Seeder Job
+# Seeds default roles, permissions, and admin user into the database.
+#
+# USAGE:
+#   Staging: Run ONCE after the first deployment to populate initial data.
+#     kubectl apply -f seed-job.yaml -n staging
+#
+#   To re-run (delete previous job first):
+#     kubectl delete job iam-seed -n staging --ignore-not-found
+#     kubectl apply -f seed-job.yaml -n staging
+#
+#   Monitor progress:
+#     kubectl logs -f job/iam-seed -n staging
+#
+# PRODUCTION:
+#   Do NOT run this job in production.
+#   Create initial data manually via admin UI or a controlled migration.
+#
+# WHAT IT SEEDS:
+#   - Roles: SUPER_ADMIN, ADMIN, USER, VIEWER
+#   - Permissions: IAM + Finance module permissions
+#   - Admin user: username=admin, password=admin123
+#   - Role-permission assignments
+#   - SUPER_ADMIN role assigned to admin user
+#
+# NOTE: The seeder uses ON CONFLICT DO NOTHING, so it is safe to run
+#       multiple times without duplicating data.
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-seed
+  labels:
+    app: iam-service
+    component: seeder
+    app.kubernetes.io/name: iam-service
+    app.kubernetes.io/component: seeder
+    app.kubernetes.io/part-of: goapps
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: iam-service
+        component: seeder
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      restartPolicy: Never
+      containers:
+        - name: iam-seeder
+          image: ghcr.io/ilramdhan/iam-service:latest
+          imagePullPolicy: Always
+          command: ["go", "run", "./seeds/"]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Database config - same as IAM deployment
+            - name: DATABASE_HOST
+              value: "postgres.database.svc.cluster.local"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: "goapps"
+            - name: DATABASE_SSLMODE
+              value: "disable"
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
