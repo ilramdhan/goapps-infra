@@ -1,7 +1,7 @@
 # goapps-infra Makefile
 # Common operations for K8s infrastructure management
 
-.PHONY: help bootstrap install-monitoring install-argocd apply-staging apply-production reset
+.PHONY: help bootstrap install-monitoring install-argocd apply-staging apply-production reset deploy-iam-staging deploy-iam-production
 
 # Colors
 GREEN := \033[0;32m
@@ -24,6 +24,8 @@ help:
 	@echo "$(YELLOW)Services:$(NC)"
 	@echo "  make deploy-finance-staging     - Deploy finance-service to staging"
 	@echo "  make deploy-finance-production  - Deploy finance-service to production"
+	@echo "  make deploy-iam-staging         - Deploy iam-service to staging"
+	@echo "  make deploy-iam-production      - Deploy iam-service to production"
 	@echo ""
 	@echo "$(YELLOW)Maintenance:$(NC)"
 	@echo "  make status              - Cluster status"
@@ -78,6 +80,14 @@ deploy-finance-staging:
 deploy-finance-production:
 	@echo "$(GREEN)Deploying finance-service to production...$(NC)"
 	kubectl apply -k services/finance-service/overlays/production/
+
+deploy-iam-staging:
+	@echo "$(GREEN)Deploying iam-service to staging...$(NC)"
+	kubectl apply -k services/iam-service/overlays/staging/
+
+deploy-iam-production:
+	@echo "$(GREEN)Deploying iam-service to production...$(NC)"
+	kubectl apply -k services/iam-service/overlays/production/
 
 # =============================================================================
 # Status & Monitoring

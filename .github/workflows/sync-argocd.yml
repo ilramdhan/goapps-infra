@@ -53,6 +53,7 @@ jobs:
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app sync infra-apps --server localhost:8080 --plaintext --prune || true
             argocd app sync finance-service-staging --server localhost:8080 --plaintext --prune || true
+            argocd app sync frontend-staging --server localhost:8080 --plaintext --prune || true
           "
           echo "✅ Staging sync triggered"
 
@@ -67,6 +68,7 @@ jobs:
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app wait infra-apps --server localhost:8080 --plaintext --timeout 300 || true
             argocd app wait finance-service-staging --server localhost:8080 --plaintext --timeout 300 || true
+            argocd app wait frontend-staging --server localhost:8080 --plaintext --timeout 300 || true
           "
           echo "✅ Applications healthy"
 
