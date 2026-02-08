@@ -4,11 +4,10 @@ namespace: goapps-production
 resources:
 - ../../base
 patches:
-  - path: patches/replicas.yaml
-  - path: patches/resources.yaml
-  - path: patches/ingress-host.yaml
-  - path: patches/env-cors.yaml
-
+- path: patches/replicas.yaml
+- path: patches/resources.yaml
+- path: patches/ingress-host.yaml
+- path: patches/env-cors.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: c82c258
+  newTag: f3dac2a
