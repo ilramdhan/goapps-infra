@@ -9,4 +9,4 @@ patches:
 - path: patches/ingress-host.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: f950837
+  newTag: "7110400"
