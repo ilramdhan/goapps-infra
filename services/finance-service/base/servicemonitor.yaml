@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: finance-service
+  labels:
+    app: finance-service
+spec:
+  selector:
+    matchLabels:
+      app: finance-service
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
