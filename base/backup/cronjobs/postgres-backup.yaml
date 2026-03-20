@@ -103,7 +103,7 @@ spec:
                   /scripts/backup.sh
               env:
                 - name: ENVIRONMENT
-                  value: "production"
+                  value: "base"        # Overridden by staging/production overlays
                 - name: POSTGRES_PASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -193,7 +193,7 @@ spec:
                   /scripts/backup.sh
               env:
                 - name: ENVIRONMENT
-                  value: "production"
+                  value: "base"        # Overridden by staging/production overlays
                 - name: POSTGRES_PASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -283,7 +283,7 @@ spec:
                   /scripts/backup.sh
               env:
                 - name: ENVIRONMENT
-                  value: "production"
+                  value: "base"        # Overridden by staging/production overlays
                 - name: POSTGRES_PASSWORD
                   valueFrom:
                     secretKeyRef:

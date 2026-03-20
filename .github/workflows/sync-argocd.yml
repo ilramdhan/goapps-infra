@@ -29,7 +29,7 @@ jobs:
     runs-on: [self-hosted, staging, goapps-runner]
     if: github.event_name == 'push' || github.event.inputs.environment == 'staging' || github.event.inputs.environment == 'all'
     environment: staging
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,15 +39,15 @@ jobs:
         run: |
           ARGOCD_POD=$(kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server -o jsonpath='{.items[0].metadata.name}')
           echo "pod=$ARGOCD_POD" >> $GITHUB_OUTPUT
-          echo "✅ Found ArgoCD pod: $ARGOCD_POD"
+          echo "Found ArgoCD pod: $ARGOCD_POD"
 
       - name: Sync Applications
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_TOKEN_STAGING }}
         run: |
-          echo "🔄 Syncing staging applications..."
+          echo "Syncing staging applications..."
           ARGOCD_POD="${{ steps.argocd.outputs.pod }}"
-          
+
           # Use auth token via environment variable
           kubectl exec -n argocd $ARGOCD_POD -- sh -c "
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
@@ -56,23 +56,23 @@ jobs:
             argocd app sync frontend-staging --server localhost:8080 --plaintext --prune || true
             argocd app sync iam-service-staging --server localhost:8080 --plaintext --prune || true
           "
-          echo "✅ Staging sync triggered"
+          echo "Staging sync triggered"
 
       - name: Wait for Healthy
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_TOKEN_STAGING }}
         run: |
-          echo "⏳ Waiting for applications to be healthy..."
+          echo "Waiting for applications to be healthy..."
           ARGOCD_POD="${{ steps.argocd.outputs.pod }}"
-          
+
           kubectl exec -n argocd $ARGOCD_POD -- sh -c "
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app wait infra-apps --server localhost:8080 --plaintext --timeout 300 || true
-            argocd app wait finance-service-staging --server localhost:8080 --plaintext --timeout 300 || true
-            argocd app wait frontend-staging --server localhost:8080 --plaintext --timeout 300 || true
-            argocd app wait iam-service-staging --server localhost:8080 --plaintext --timeout 300 || true
+            argocd app wait finance-service-staging --server localhost:8080 --plaintext --timeout 600 || true
+            argocd app wait frontend-staging --server localhost:8080 --plaintext --timeout 600 || true
+            argocd app wait iam-service-staging --server localhost:8080 --plaintext --timeout 600 || true
           "
-          echo "✅ Applications healthy"
+          echo "Applications healthy"
 
   sync-production:
     name: Sync Production
@@ -80,7 +80,7 @@ jobs:
     if: github.event.inputs.environment == 'all'
     environment: production
     needs: [sync-staging]
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,36 +95,40 @@ jobs:
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_TOKEN_PRODUCTION }}
         run: |
-          echo "🔄 Syncing production applications..."
+          echo "Syncing production applications..."
           ARGOCD_POD="${{ steps.argocd.outputs.pod }}"
-          
+
           kubectl exec -n argocd $ARGOCD_POD -- sh -c "
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app sync infra-apps --server localhost:8080 --plaintext --prune
             argocd app sync finance-service-production --server localhost:8080 --plaintext --prune
+            argocd app sync iam-service-production --server localhost:8080 --plaintext --prune
+            argocd app sync frontend-production --server localhost:8080 --plaintext --prune
           "
-          echo "✅ Production sync triggered"
+          echo "Production sync triggered"
 
       - name: Wait for Healthy
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_TOKEN_PRODUCTION }}
         run: |
-          echo "⏳ Waiting for applications to be healthy..."
+          echo "Waiting for applications to be healthy..."
           ARGOCD_POD="${{ steps.argocd.outputs.pod }}"
-          
+
           kubectl exec -n argocd $ARGOCD_POD -- sh -c "
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app wait infra-apps --server localhost:8080 --plaintext --timeout 300
-            argocd app wait finance-service-production --server localhost:8080 --plaintext --timeout 300
+            argocd app wait finance-service-production --server localhost:8080 --plaintext --timeout 600
+            argocd app wait iam-service-production --server localhost:8080 --plaintext --timeout 600
+            argocd app wait frontend-production --server localhost:8080 --plaintext --timeout 600
           "
-          echo "✅ Applications healthy"
+          echo "Applications healthy"
 
   sync-production-only:
     name: Sync Production (Direct)
     runs-on: [self-hosted, production, goapps-runner]
     if: github.event.inputs.environment == 'production'
     environment: production
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -139,26 +143,30 @@ jobs:
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_TOKEN_PRODUCTION }}
         run: |
-          echo "🔄 Syncing production applications (direct)..."
+          echo "Syncing production applications (direct)..."
           ARGOCD_POD="${{ steps.argocd.outputs.pod }}"
-          
+
           kubectl exec -n argocd $ARGOCD_POD -- sh -c "
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app sync infra-apps --server localhost:8080 --plaintext --prune
             argocd app sync finance-service-production --server localhost:8080 --plaintext --prune
+            argocd app sync iam-service-production --server localhost:8080 --plaintext --prune
+            argocd app sync frontend-production --server localhost:8080 --plaintext --prune
           "
-          echo "✅ Production sync triggered"
+          echo "Production sync triggered"
 
       - name: Wait for Healthy
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_TOKEN_PRODUCTION }}
         run: |
-          echo "⏳ Waiting for applications to be healthy..."
+          echo "Waiting for applications to be healthy..."
           ARGOCD_POD="${{ steps.argocd.outputs.pod }}"
-          
+
           kubectl exec -n argocd $ARGOCD_POD -- sh -c "
             export ARGOCD_AUTH_TOKEN='$ARGOCD_AUTH_TOKEN'
             argocd app wait infra-apps --server localhost:8080 --plaintext --timeout 300
-            argocd app wait finance-service-production --server localhost:8080 --plaintext --timeout 300
+            argocd app wait finance-service-production --server localhost:8080 --plaintext --timeout 600
+            argocd app wait iam-service-production --server localhost:8080 --plaintext --timeout 600
+            argocd app wait frontend-production --server localhost:8080 --plaintext --timeout 600
           "
-          echo "✅ Applications healthy"
+          echo "Applications healthy"

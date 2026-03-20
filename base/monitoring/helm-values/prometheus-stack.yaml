@@ -97,7 +97,8 @@ grafana:
 # ========================================
 prometheus:
   prometheusSpec:
-    retention: 30d
+    retention: 15d
+    retentionSize: "15GB"     # Hard limit: auto-delete oldest data if storage exceeds 15GB
     storageSpec:
       volumeClaimTemplate:
         spec:
