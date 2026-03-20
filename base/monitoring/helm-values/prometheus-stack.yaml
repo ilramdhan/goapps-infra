@@ -92,7 +92,7 @@ grafana:
     - name: Prometheus
       type: prometheus
       uid: prometheus
-      url: http://prometheus-kube-prometheus-prometheus:9090
+      url: http://prometheus-kube-prometheus-prometheus:9090/prometheus
       access: proxy
       isDefault: true
       editable: false
