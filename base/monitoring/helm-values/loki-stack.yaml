@@ -32,5 +32,13 @@ loki:
       retention_delete_delay: 2h
       retention_delete_worker_count: 150
 
+# Disable Loki's own datasource provisioning to Grafana
+# Datasources are managed centrally in prometheus-stack.yaml additionalDataSources
+# Having both creates duplicate "isDefault: true" entries → Grafana crash
+grafana:
+  sidecar:
+    datasources:
+      enabled: false
+
 promtail:
   enabled: true
