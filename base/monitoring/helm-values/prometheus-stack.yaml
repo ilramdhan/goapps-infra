@@ -76,6 +76,7 @@ grafana:
       label: grafana_datasource
       labelValue: "1"
       searchNamespace: monitoring
+      defaultDatasourceEnabled: false
     alerts:
       enabled: true
       label: grafana_alert
@@ -83,14 +84,27 @@ grafana:
       searchNamespace: monitoring
 
   # ========================================
-  # Default Datasources
+  # Datasources (managed here, NOT via external ConfigMaps)
+  # defaultDatasourceEnabled: false above prevents helm from creating
+  # a duplicate Prometheus datasource ConfigMap
   # ========================================
   additionalDataSources:
+    - name: Prometheus
+      type: prometheus
+      uid: prometheus
+      url: http://prometheus-kube-prometheus-prometheus:9090
+      access: proxy
+      isDefault: true
+      editable: false
     - name: Loki
       type: loki
+      uid: loki
       url: http://loki:3100
       access: proxy
       isDefault: false
+      editable: false
+      jsonData:
+        maxLines: 1000
 
 # ========================================
 # Prometheus Configuration
