@@ -6,6 +6,7 @@ resources:
   - service.yaml
   - hpa.yaml
   - ingress.yaml
+  - servicemonitor.yaml
 
 commonLabels:
   app.kubernetes.io/name: iam-service

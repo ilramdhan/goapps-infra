@@ -577,9 +577,10 @@ data:
                     "options": [
                         {"selected": true, "text": "All", "value": "$__all"},
                         {"selected": false, "text": "finance-service", "value": "finance-service"},
+                        {"selected": false, "text": "iam-service", "value": "iam-service"},
                         {"selected": false, "text": "frontend", "value": "frontend"}
                     ],
-                    "query": "finance-service,frontend",
+                    "query": "finance-service,iam-service,frontend",
                     "queryValue": "",
                     "skipUrlSync": false,
                     "type": "custom"
