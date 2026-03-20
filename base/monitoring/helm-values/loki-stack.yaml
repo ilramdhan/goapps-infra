@@ -12,5 +12,25 @@ loki:
     enabled: true
     size: 10Gi
 
+  # Retention: auto-delete logs older than 7 days to prevent disk exhaustion
+  config:
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h    # 7 days
+
+    limits_config:
+      retention_period: 168h    # 7 days
+
+    chunk_store_config:
+      max_look_back_period: 168h
+
+    # Compactor handles retention enforcement
+    compactor:
+      working_directory: /data/loki/compactor
+      shared_store: filesystem
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+
 promtail:
   enabled: true

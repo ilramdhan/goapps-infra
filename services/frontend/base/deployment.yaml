@@ -6,6 +6,12 @@ metadata:
     app: frontend
 spec:
   replicas: 1
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0       # Never kill old pod before new one is ready
   selector:
     matchLabels:
       app: frontend
@@ -34,15 +40,22 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
+          startupProbe:
             httpGet:
               path: /api/health
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
+            failureThreshold: 12    # 5 + (5*12) = 65s max startup time
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 3

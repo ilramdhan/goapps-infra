@@ -27,5 +27,11 @@ spec:
     namespace: goapps-production
   syncPolicy:
     # No automated sync for production - manual approval required
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
     syncOptions:
       - CreateNamespace=true

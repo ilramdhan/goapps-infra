@@ -7,6 +7,12 @@ metadata:
     app: iam-service
 spec:
   replicas: 1
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0       # Never kill old pod before new one is ready
   selector:
     matchLabels:
       app: iam-service
@@ -131,15 +137,22 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 18    # 10 + (5*18) = 100s max startup time (IAM needs more: JWT, SMTP, MinIO)
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8081
-            initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8081
-            initialDelaySeconds: 5
             periodSeconds: 5
+            failureThreshold: 3

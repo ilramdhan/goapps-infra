@@ -61,7 +61,7 @@ spec:
                   echo "[$(date)] MinIO backup to disk completed!"
               env:
                 - name: ENVIRONMENT
-                  value: "production"
+                  value: "base"        # Overridden by staging/production overlays
                 - name: MINIO_ENDPOINT
                   value: "minio.minio:9000"
                 - name: MINIO_ACCESS_KEY
