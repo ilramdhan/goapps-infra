@@ -2,15 +2,17 @@
 # Seeds default roles, permissions, and admin user into the database.
 #
 # USAGE:
-#   Staging: Run ONCE after the first deployment to populate initial data.
-#     kubectl apply -f seed-job.yaml -n staging
+#   Run ONCE after the first deployment to populate initial data.
+#   Replace <namespace> with goapps-staging or goapps-production.
+#
+#     kubectl apply -f seed-job.yaml -n <namespace>
 #
 #   To re-run (delete previous job first):
-#     kubectl delete job iam-seed -n staging --ignore-not-found
-#     kubectl apply -f seed-job.yaml -n staging
+#     kubectl delete job iam-seed -n <namespace> --ignore-not-found
+#     kubectl apply -f seed-job.yaml -n <namespace>
 #
 #   Monitor progress:
-#     kubectl logs -f job/iam-seed -n staging
+#     kubectl logs -f job/iam-seed -n <namespace>
 #
 # PRODUCTION:
 #   Same as staging — create the iam-seed-secret first, then apply.
@@ -63,7 +65,7 @@ spec:
         - name: iam-seeder
           image: ghcr.io/mutugading/iam-service:latest
           imagePullPolicy: Always
-          command: ["go", "run", "./seeds/"]
+          command: ["/app/iam-seed"]
           env:
             - name: APP_ENV
               valueFrom:
