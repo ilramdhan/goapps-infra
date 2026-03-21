@@ -13,13 +13,24 @@
 #     kubectl logs -f job/iam-seed -n staging
 #
 # PRODUCTION:
-#   Do NOT run this job in production.
-#   Create initial data manually via admin UI or a controlled migration.
+#   Same as staging — create the iam-seed-secret first, then apply.
+#
+# CUSTOM ADMIN CREDENTIALS (staging/production):
+#   Create a secret BEFORE running this job:
+#     kubectl create secret generic iam-seed-secret -n <namespace> \
+#       --from-literal=SEED_ADMIN_USERNAME='admin' \
+#       --from-literal=SEED_ADMIN_EMAIL='admin@yourdomain.com' \
+#       --from-literal=SEED_ADMIN_PASSWORD='YourSecurePassword!'
+#
+#   If the secret does not exist (optional: true), the seeder falls back to:
+#     - Username: admin
+#     - Email: admin@goapps.local
+#     - Password: random 24-char hex (printed to logs — save immediately!)
 #
 # WHAT IT SEEDS:
 #   - Roles: SUPER_ADMIN, ADMIN, USER, VIEWER
 #   - Permissions: IAM + Finance module permissions
-#   - Admin user: username=admin, password=admin123
+#   - Admin user (credentials from iam-seed-secret or auto-generated)
 #   - Role-permission assignments
 #   - SUPER_ADMIN role assigned to admin user
 #
@@ -77,6 +88,27 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
+            # --- Custom admin credentials (optional) ---
+            # If iam-seed-secret does not exist, seeder uses defaults
+            # (random password in staging/production, printed to logs).
+            - name: SEED_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: iam-seed-secret
+                  key: SEED_ADMIN_USERNAME
+                  optional: true
+            - name: SEED_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: iam-seed-secret
+                  key: SEED_ADMIN_EMAIL
+                  optional: true
+            - name: SEED_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: iam-seed-secret
+                  key: SEED_ADMIN_PASSWORD
+                  optional: true
           resources:
             requests:
               memory: "64Mi"
