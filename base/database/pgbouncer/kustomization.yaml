@@ -8,7 +8,7 @@ resources:
   - service.yaml
   - configmap.yaml
   - hpa.yaml
-  - vpa.yaml
+  # vpa.yaml removed — VPA CRD not installed on clusters
 
 commonLabels:
   app.kubernetes.io/name: pgbouncer
