@@ -8,7 +8,11 @@ spec:
       containers:
         - name: frontend
           env:
-            - name: IAM_SERVICE_URL
-              value: "http://iam-service:8081"
-            - name: FINANCE_SERVICE_URL
-              value: "http://finance-service:8080"
+            - name: IAM_GRPC_HOST
+              value: "iam-service"
+            - name: IAM_GRPC_PORT
+              value: "50052"
+            - name: FINANCE_GRPC_HOST
+              value: "finance-service"
+            - name: FINANCE_GRPC_PORT
+              value: "50051"
