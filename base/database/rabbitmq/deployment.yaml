@@ -40,10 +40,10 @@ spec:
                   key: RABBITMQ_PASSWORD
           resources:
             requests:
-              cpu: 50m
+              cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 300m
+              cpu: 500m
               memory: 512Mi
           startupProbe:
             exec:
@@ -51,10 +51,10 @@ spec:
                 - rabbitmq-diagnostics
                 - -q
                 - ping
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
-            failureThreshold: 18    # 10 + (10*18) = 190s max startup time
-            timeoutSeconds: 10
+            failureThreshold: 18    # 15 + (10*18) = 195s max startup time
+            timeoutSeconds: 30
           livenessProbe:
             exec:
               command:
@@ -63,7 +63,7 @@ spec:
                 - ping
             periodSeconds: 30
             failureThreshold: 3
-            timeoutSeconds: 10
+            timeoutSeconds: 30
           readinessProbe:
             exec:
               command:
@@ -72,7 +72,7 @@ spec:
                 - check_running
             periodSeconds: 10
             failureThreshold: 3
-            timeoutSeconds: 10
+            timeoutSeconds: 30
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
