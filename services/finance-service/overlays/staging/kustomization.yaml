@@ -10,4 +10,4 @@ patches:
 - path: patches/env-cors.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: c8f5a7b
+  newTag: cef75af
