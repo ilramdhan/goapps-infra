@@ -59,7 +59,7 @@ spec:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
             - name: DATABASE_URL
-              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@postgres.database.svc.cluster.local:5432/goapps?sslmode=disable"
+              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@postgres.database.svc.cluster.local:5432/goapps?sslmode=disable&x-migrations-table=schema_migrations_iam"
           resources:
             requests:
               memory: "64Mi"
