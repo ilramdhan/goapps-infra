@@ -7,30 +7,41 @@ metadata:
     app: postgres
 data:
   # PostgreSQL configuration tuning
+  # Tuned for: 100 users, costing batch (12K products × 500 params), daily valuations
+  # Memory budget: 2Gi container limit → 512MB shared_buffers (25%)
   postgresql.conf: |
     # Connection Settings
     listen_addresses = '*'
-    max_connections = 100
-    
-    # Memory Settings (adjust based on available RAM)
-    shared_buffers = 256MB
-    effective_cache_size = 768MB
-    work_mem = 4MB
-    maintenance_work_mem = 64MB
-    
+    max_connections = 150
+
+    # Memory Settings (tuned for 2Gi container limit)
+    shared_buffers = 512MB
+    effective_cache_size = 1536MB
+    work_mem = 8MB
+    maintenance_work_mem = 128MB
+    temp_buffers = 16MB
+
     # WAL Settings
     wal_buffers = 16MB
     checkpoint_completion_target = 0.9
-    
+    min_wal_size = 256MB
+    max_wal_size = 1GB
+
+    # Parallel Query (critical for costing batch operations)
+    max_worker_processes = 8
+    max_parallel_workers = 4
+    max_parallel_workers_per_gather = 2
+    max_parallel_maintenance_workers = 2
+
     # Query Planner
     random_page_cost = 1.1
     effective_io_concurrency = 200
-    
+
     # Logging
     log_timezone = 'Asia/Jakarta'
     log_statement = 'ddl'
     log_min_duration_statement = 1000
-    
+
     # Locale
     timezone = 'Asia/Jakarta'
     datestyle = 'iso, mdy'
