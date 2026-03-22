@@ -1,18 +1,15 @@
 # IAM Migration Job
 # Runs database migrations using golang-migrate.
 #
-# USAGE:
-#   Replace <namespace> with goapps-staging or goapps-production.
+# USAGE (via helper script — recommended):
+#   ./scripts/iam-setup.sh <namespace>
+#   Example: ./scripts/iam-setup.sh goapps-staging
 #
-#   First run:
-#     kubectl apply -f migrate-job.yaml -n <namespace>
-#
-#   Re-run (e.g., after adding new migrations):
-#     kubectl delete job iam-migrate -n <namespace> --ignore-not-found
-#     kubectl apply -f migrate-job.yaml -n <namespace>
-#
-#   Monitor progress:
-#     kubectl logs -f job/iam-migrate -n <namespace>
+# MANUAL USAGE:
+#   Replace <namespace> and IMAGE_TAG before applying.
+#   kubectl delete job iam-migrate -n <namespace> --ignore-not-found
+#   cat migrate-job.yaml | sed "s|IMAGE_TAG|<tag>|" | kubectl apply -n <namespace> -f -
+#   kubectl logs -f job/iam-migrate -n <namespace>
 #
 # NOTE: Migrations use IF NOT EXISTS / IF EXISTS, safe to run multiple times.
 #       Always run migrate BEFORE seed.
@@ -41,7 +38,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: iam-migrate
-          image: ghcr.io/mutugading/iam-service:d37a89e
+          image: ghcr.io/mutugading/iam-service:IMAGE_TAG
           imagePullPolicy: Always
           command:
             - /app/migrate
