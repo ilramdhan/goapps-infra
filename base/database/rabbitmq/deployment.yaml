@@ -40,11 +40,11 @@ spec:
                   key: RABBITMQ_PASSWORD
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 300m
+              memory: 384Mi
           livenessProbe:
             exec:
               command:

@@ -6,6 +6,7 @@ metadata:
     app: frontend
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   progressDeadlineSeconds: 600
   strategy:
     type: RollingUpdate
