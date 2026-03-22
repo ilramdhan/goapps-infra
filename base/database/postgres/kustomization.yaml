@@ -7,7 +7,7 @@ resources:
   - statefulset.yaml
   - service.yaml
   - configmap.yaml
-  - vpa.yaml
+  # vpa.yaml removed — VPA CRD not installed on clusters
 
 commonLabels:
   app.kubernetes.io/name: postgres
