@@ -1,0 +1,75 @@
+# Finance Seeder Job
+# Seeds default UOM master data into the database.
+#
+# USAGE (via helper script — recommended):
+#   ./scripts/finance-setup.sh <namespace>
+#   Example: ./scripts/finance-setup.sh goapps-production
+#
+# MANUAL USAGE:
+#   Replace <namespace> and IMAGE_TAG before applying.
+#   kubectl delete job finance-seed -n <namespace> --ignore-not-found
+#   cat seed-job.yaml | sed "s|IMAGE_TAG|<tag>|" | kubectl apply -n <namespace> -f -
+#   kubectl logs -f job/finance-seed -n <namespace>
+#
+# WHAT IT SEEDS:
+#   - 26 UOM records (Weight, Length, Volume, Quantity)
+#
+# NOTE: The seeder checks existence before insert, safe to run multiple times.
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: finance-seed
+  labels:
+    app: finance-service
+    component: seeder
+    app.kubernetes.io/name: finance-service
+    app.kubernetes.io/component: seeder
+    app.kubernetes.io/part-of: goapps
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: finance-service
+        component: seeder
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      restartPolicy: Never
+      containers:
+        - name: finance-seeder
+          image: ghcr.io/mutugading/finance-service:IMAGE_TAG
+          imagePullPolicy: Always
+          command: ["/app/finance-seed"]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DATABASE_HOST
+              value: "postgres.database.svc.cluster.local"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: "goapps"
+            - name: DATABASE_SSLMODE
+              value: "disable"
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

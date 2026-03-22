@@ -1,0 +1,69 @@
+# Finance Migration Job
+# Runs database migrations using golang-migrate.
+#
+# USAGE (via helper script — recommended):
+#   ./scripts/finance-setup.sh <namespace>
+#   Example: ./scripts/finance-setup.sh goapps-staging
+#
+# MANUAL USAGE:
+#   Replace <namespace> and IMAGE_TAG before applying.
+#   kubectl delete job finance-migrate -n <namespace> --ignore-not-found
+#   cat migrate-job.yaml | sed "s|IMAGE_TAG|<tag>|" | kubectl apply -n <namespace> -f -
+#   kubectl logs -f job/finance-migrate -n <namespace>
+#
+# NOTE: Migrations use IF NOT EXISTS / IF EXISTS, safe to run multiple times.
+#       Always run migrate BEFORE seed.
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: finance-migrate
+  labels:
+    app: finance-service
+    component: migration
+    app.kubernetes.io/name: finance-service
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: goapps
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: finance-service
+        component: migration
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      restartPolicy: Never
+      containers:
+        - name: finance-migrate
+          image: ghcr.io/mutugading/finance-service:IMAGE_TAG
+          imagePullPolicy: Always
+          command:
+            - /app/migrate
+            - -path
+            - /app/migrations
+            - -database
+            - $(DATABASE_URL)
+            - up
+          env:
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@postgres.database.svc.cluster.local:5432/goapps?sslmode=disable"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
