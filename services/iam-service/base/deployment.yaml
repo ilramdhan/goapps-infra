@@ -95,6 +95,17 @@ spec:
                 secretKeyRef:
                   name: smtp-secret
                   key: SMTP_PASSWORD
+            - name: SMTP_FROM_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_FROM_ADDRESS
+            - name: SMTP_USE_TLS
+              value: "true"               # port 465 SMTPS -- implicit TLS required
+            - name: SMTP_SKIP_VERIFY
+              value: "true"               # mail.mutugading.com uses self-signed cert
+            - name: SMTP_FROM_NAME
+              value: "GoApps"
             # CORS (comma-separated origins for SSO multi-app)
             - name: CORS_ALLOWED_ORIGINS
               value: "https://app.goapps.local"
