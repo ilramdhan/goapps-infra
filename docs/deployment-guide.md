@@ -240,10 +240,120 @@ ArgoCD akan auto-sync dari Git berdasarkan branch/tag:
 
 ---
 
-## Step 10: Verifikasi Final
+## Step 10: Run Database Migrations & Seeds
+
+Tables are **NOT** auto-created on deploy. You must run migrations and seeds manually via K8s Jobs after each service is deployed for the first time (or when new migrations are added).
+
+### How It Works
+
+Each backend service has:
+- `migrate-job.yaml` — K8s Job that runs `golang-migrate` to apply SQL migrations
+- `seed-job.yaml` — K8s Job that runs the Go seeder binary to insert initial data
+- Setup script (`scripts/<service>-setup.sh`) — convenience wrapper that runs both
+
+Seeds use `ON CONFLICT DO NOTHING`, so they are **idempotent** (safe to re-run).
+
+### Finance Service
+
+```bash
+# From goapps-infra directory on the VPS
+./scripts/finance-setup.sh goapps-staging           # migrate + seed
+./scripts/finance-setup.sh goapps-production         # migrate + seed
+./scripts/finance-setup.sh goapps-staging migrate    # migrate only
+./scripts/finance-setup.sh goapps-staging seed       # seed only
+```
+
+**What gets seeded**: UOM master data, RM Category master data.
+
+### IAM Service
+
+```bash
+./scripts/iam-setup.sh goapps-staging               # migrate + seed
+./scripts/iam-setup.sh goapps-production             # migrate + seed
+./scripts/iam-setup.sh goapps-staging migrate        # migrate only
+./scripts/iam-setup.sh goapps-staging seed           # seed only
+```
+
+**What gets seeded**: Admin user, roles, permissions, menus (3-level hierarchy), CMS content (pages, sections, settings).
+
+### When to Run
+
+| Scenario | Action |
+|----------|--------|
+| First deploy of a service | `./scripts/<service>-setup.sh <namespace>` (migrate + seed) |
+| New migration added (new tables/columns) | `./scripts/<service>-setup.sh <namespace> migrate` |
+| New seed data added (e.g., CMS content) | `./scripts/<service>-setup.sh <namespace> seed` |
+| Routine deploy (no schema changes) | Nothing — ArgoCD handles the deployment, no migration needed |
+
+### Prerequisites
+
+- The service deployment must already be running (the script reads the image tag from the running deployment)
+- For custom admin credentials in production, create `iam-seed-secret` first (see `seed-job.yaml`)
+
+### Troubleshooting
+
+```bash
+# Check migration job status
+kubectl get jobs -n goapps-staging | grep migrate
+
+# Check seed job logs
+kubectl logs job/iam-seed -n goapps-staging
+
+# Check migration pod logs (shows actual error)
+kubectl logs -n goapps-staging -l job-name=iam-migrate
+
+# Delete old failed jobs before re-running
+kubectl delete job iam-migrate iam-seed -n goapps-staging --ignore-not-found
+```
+
+#### Dirty Migration Fix
+
+If migration fails with `error: Dirty database version N. Fix and force version.`:
+
+```bash
+# 1. Check current state
+kubectl exec -it postgres-0 -n database -- psql -U postgres -d goapps -c \
+  "SELECT version, dirty FROM schema_migrations_iam;"
+
+# 2. Determine the correct version:
+#    - If tables already exist in DB, set version to the LAST SUCCESSFULLY APPLIED migration
+#    - Check which tables exist to determine the right version number
+#    - Example: if all 13 IAM migrations were applied, set version=13
+
+# 3. Fix the dirty flag AND set correct version
+kubectl exec -it postgres-0 -n database -- psql -U postgres -d goapps -c \
+  "UPDATE schema_migrations_iam SET version = <correct_version>, dirty = false;"
+
+# 4. Re-run migration
+kubectl delete job iam-migrate -n goapps-staging --ignore-not-found
+./scripts/iam-setup.sh goapps-staging migrate
+```
+
+**Common cause**: Migration Job crashed/timed out mid-execution, or tables were created outside of golang-migrate (manual SQL, seed job). The `schema_migrations_*` table tracks which version was last applied — if it doesn't match reality, you must manually correct it.
+
+**For finance service**, replace `schema_migrations_iam` with `schema_migrations_finance`.
+
+### Migration Files Reference
+
+| Service | Migration | Description |
+|---------|-----------|-------------|
+| Finance | 000001 | UOM tables + indexes |
+| Finance | 000002 | Audit logs |
+| Finance | 000003 | RM Category tables |
+| IAM | 000001-000011 | Auth, users, roles, permissions, organizations, menus, sessions, audit |
+| IAM | 000012 | CMS tables (mst_cms_page, mst_cms_section, mst_cms_setting) |
+| IAM | 000013 | CMS menu entries + permissions |
+| Finance | 000004 | Parameter tables (mst_parameter) + indexes |
+| IAM | 000014 | Parameter menu entry + 6 permissions + SUPER_ADMIN role_permissions |
+
+---
+
+## Step 11: Verifikasi Final
 
 ### Checklist
 
+- [ ] Migrations applied: `kubectl get jobs -n goapps-staging | grep migrate`
+- [ ] Seeds applied: `kubectl get jobs -n goapps-staging | grep seed`
 - [ ] K3s cluster running: `kubectl get nodes`
 - [ ] All namespaces created: `kubectl get ns`
 - [ ] PostgreSQL running: `kubectl get pods -n database -l app=postgres`
