@@ -11,4 +11,4 @@ patches:
 - path: patches/env-storage.yaml
 images:
 - name: ghcr.io/mutugading/iam-service
-  newTag: ea159be
+  newTag: 6771aa0
