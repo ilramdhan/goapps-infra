@@ -70,16 +70,16 @@ spec:
                 secretKeyRef:
                   name: oracle-credentials
                   key: ORACLE_SERVICE
-            - name: ORACLE_MGTDAT_USER
+            - name: ORACLE_USER
               valueFrom:
                 secretKeyRef:
                   name: oracle-credentials
-                  key: ORACLE_MGTDAT_USER
-            - name: ORACLE_MGTDAT_PASSWORD
+                  key: ORACLE_USER
+            - name: ORACLE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: oracle-credentials
-                  key: ORACLE_MGTDAT_PASSWORD
+                  key: ORACLE_PASSWORD
             # RabbitMQ config (constructed from secret user/password + service DNS)
             - name: RABBITMQ_USER
               valueFrom:
