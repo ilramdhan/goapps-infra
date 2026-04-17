@@ -1,52 +1,43 @@
-# Finance Service Deployment
+# Finance Worker Deployment
+# Consumes RabbitMQ messages and runs Oracle-to-PostgreSQL sync jobs.
+# Uses the same Docker image as finance-service with a different entrypoint.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: finance-service
+  name: finance-worker
   labels:
-    app: finance-service
+    app: finance-worker
 spec:
   replicas: 1
   revisionHistoryLimit: 3
-  progressDeadlineSeconds: 600
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0       # Never kill old pod before new one is ready
+      maxUnavailable: 0
   selector:
     matchLabels:
-      app: finance-service
+      app: finance-worker
   template:
     metadata:
       labels:
-        app: finance-service
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8090"
-        prometheus.io/path: "/metrics"
+        app: finance-worker
     spec:
       imagePullSecrets:
         - name: ghcr-secret
       containers:
-        - name: finance-service
+        - name: finance-worker
           image: ghcr.io/mutugading/finance-service:latest
+          command: ["/app/finance-worker"]
           imagePullPolicy: Always
-          ports:
-            - containerPort: 50051
-              name: grpc
-            - containerPort: 8080
-              name: http
-            - containerPort: 8090
-              name: metrics
           env:
             - name: APP_ENV
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            # Database config - matches Go app config.go bindings
+            # Database config (via PgBouncer)
             - name: DATABASE_HOST
-              value: "postgres.database.svc.cluster.local"
+              value: "pgbouncer.database.svc.cluster.local"
             - name: DATABASE_PORT
               value: "5432"
             - name: DATABASE_NAME
@@ -63,28 +54,33 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
-            # JWT (shared secret with IAM for token validation)
-            - name: JWT_ACCESS_SECRET
+            # Oracle config
+            - name: ORACLE_HOST
               valueFrom:
                 secretKeyRef:
-                  name: goapps-auth-secret
-                  key: JWT_ACCESS_SECRET
-            # CORS (comma-separated origins for SSO multi-app)
-            - name: CORS_ALLOWED_ORIGINS
-              value: "https://app.goapps.local"
-            # Redis config (UOM cache)
-            - name: REDIS_HOST
-              value: "redis.database.svc.cluster.local"
-            - name: REDIS_PORT
-              value: "6379"
-            # Auth Redis (shared with IAM for token blacklist)
-            - name: AUTH_REDIS_HOST
-              value: "redis.database.svc.cluster.local"
-            - name: AUTH_REDIS_PORT
-              value: "6379"
-            - name: AUTH_REDIS_DB
-              value: "1"
-            # RabbitMQ (for Oracle sync job publishing)
+                  name: oracle-credentials
+                  key: ORACLE_HOST
+            - name: ORACLE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_PORT
+            - name: ORACLE_SERVICE
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_SERVICE
+            - name: ORACLE_MGTDAT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_MGTDAT_USER
+            - name: ORACLE_MGTDAT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_MGTDAT_PASSWORD
+            # RabbitMQ config (constructed from secret user/password + service DNS)
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -109,19 +105,22 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+          # Worker has no ports — use exec-based liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f finance-worker"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
           startupProbe:
-            grpc:
-              port: 50051
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f finance-worker"
             initialDelaySeconds: 5
             periodSeconds: 5
-            failureThreshold: 12    # 5 + (5*12) = 65s max startup time
-          livenessProbe:
-            grpc:
-              port: 50051
-            periodSeconds: 10
-            failureThreshold: 3
-          readinessProbe:
-            grpc:
-              port: 50051
-            periodSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 12

@@ -1,0 +1,54 @@
+# Oracle Sync CronJob
+# Triggers Oracle-to-PostgreSQL data sync on the 4th of each month at 02:00 WIB.
+# Day 4 ensures the period resolves to current month (day 1-3 resolves to previous month).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: oracle-sync-monthly
+  labels:
+    app: finance-worker
+spec:
+  schedule: "0 2 4 * *"    # 02:00 WIB on the 4th of each month
+  timeZone: "Asia/Jakarta"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600    # 10-minute timeout
+      template:
+        metadata:
+          labels:
+            app: oracle-sync-cron
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: trigger
+              image: curlimages/curl:8.5.0
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "[$(date)] Triggering monthly Oracle sync..."
+                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+                    "http://finance-service:8080/api/v1/finance/oracle-sync/trigger" \
+                    -H "Content-Type: application/json" \
+                    -d '{}')
+                  HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+                  BODY=$(echo "$RESPONSE" | head -n -1)
+                  echo "[$(date)] Response (HTTP ${HTTP_CODE}): ${BODY}"
+                  if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+                    echo "[$(date)] Sync triggered successfully"
+                    exit 0
+                  else
+                    echo "[$(date)] Failed to trigger sync"
+                    exit 1
+                  fi
+              resources:
+                requests:
+                  memory: "32Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "64Mi"
+                  cpu: "100m"
