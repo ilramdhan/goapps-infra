@@ -1,0 +1,17 @@
+# Production: Higher resource limits for worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-worker
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
