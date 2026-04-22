@@ -1,6 +1,8 @@
 # Oracle Sync CronJob
 # Triggers Oracle-to-PostgreSQL data sync on the 4th of each month at 02:00 WIB.
-# Day 4 ensures the period resolves to current month (day 1-3 resolves to previous month).
+# Day 4 falls within the day 1-5 window of ResolvePeriod(), so the job fetches
+# the PREVIOUS month's data — by day 4, the previous month has been finalized in
+# Oracle MGTDAT and the procedure PRC_CST_CONSSTKPO_MGT contains complete records.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
