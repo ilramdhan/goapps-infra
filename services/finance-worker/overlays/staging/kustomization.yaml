@@ -7,4 +7,4 @@ patches:
 - path: patches/resources.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: 63a2466
+  newTag: 1cb3810
