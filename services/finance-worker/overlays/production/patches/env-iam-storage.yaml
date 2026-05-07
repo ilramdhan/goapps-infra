@@ -1,0 +1,18 @@
+# Per-environment overrides: IAM gRPC target + MinIO bucket/URL for production.
+# Token + credentials still come from secrets in base/.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-worker
+          env:
+            - name: IAM_GRPC_HOST
+              value: "iam-service.goapps-production.svc.cluster.local"
+            - name: MINIO_BUCKET
+              value: "goapps-production"
+            - name: MINIO_PUBLIC_URL
+              value: "https://goapps.mutugading.com:30091"

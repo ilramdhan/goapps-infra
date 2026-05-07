@@ -1,0 +1,18 @@
+# Per-environment overrides: IAM gRPC target + MinIO bucket/URL for staging.
+# Token + credentials still come from secrets in base/.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-worker
+          env:
+            - name: IAM_GRPC_HOST
+              value: "iam-service.goapps-staging.svc.cluster.local"
+            - name: MINIO_BUCKET
+              value: "goapps-staging"
+            - name: MINIO_PUBLIC_URL
+              value: "https://staging-goapps.mutugading.com:30091"

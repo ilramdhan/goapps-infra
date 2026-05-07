@@ -98,6 +98,40 @@ spec:
               value: "true"
             - name: JAEGER_ENDPOINT
               value: "jaeger-collector.observability.svc.cluster.local:4317"
+            # IAM gRPC client — worker → IAM for EXPORT_READY notifications.
+            - name: IAM_GRPC_HOST
+              value: "iam-service.goapps-staging.svc.cluster.local"  # overridden per env via kustomize
+            - name: IAM_GRPC_PORT
+              value: "50052"
+            # MinIO storage — worker uploads RM Cost xlsx exports here.
+            - name: MINIO_ENDPOINT
+              value: "minio.minio.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "goapps-staging"    # overridden per environment via kustomize
+            - name: MINIO_USE_SSL
+              value: "true"
+            - name: MINIO_INSECURE_SKIP_VERIFY
+              value: "true"              # self-signed certs in cluster
+            - name: MINIO_PUBLIC_URL
+              value: ""                  # overridden per environment via kustomize
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+            # Internal service-to-service token — sent in `x-internal-token`
+            # gRPC metadata when calling IAM CreateNotification. Must match the
+            # value mounted on iam-service.
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-internal-token
+                  key: INTERNAL_SERVICE_TOKEN
           resources:
             requests:
               memory: "128Mi"
