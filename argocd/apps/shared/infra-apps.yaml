@@ -30,3 +30,36 @@ spec:
 # NOTE: infra-backup Application has been moved to environment-specific files:
 # - argocd/apps/staging/infra-backup.yaml (uses overlays/staging/backup)
 # - argocd/apps/production/infra-backup.yaml (uses overlays/production/backup)
+---
+# ArgoCD Application - Observability (Jaeger all-in-one for distributed tracing)
+# Single shared instance — namespace `observability` is created on first sync.
+# Application services (iam-service, finance-service, finance-worker) export
+# OTLP traces to jaeger-collector.observability.svc.cluster.local:4317.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: infra-observability
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: goapps
+  source:
+    repoURL: https://github.com/mutugading/goapps-infra.git
+    targetRevision: main
+    path: base/observability/jaeger
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

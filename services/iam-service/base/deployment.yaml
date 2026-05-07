@@ -142,6 +142,15 @@ spec:
               value: "true"              # self-signed certs in cluster
             - name: STORAGE_PUBLIC_URL
               value: ""                  # overridden per environment via kustomize
+            # Internal service-to-service token — accepted in `x-internal-token`
+            # gRPC metadata as a JWT bypass for trusted backend callers
+            # (e.g. finance-worker emitting EXPORT_READY notifications).
+            # Must match finance-worker's INTERNAL_SERVICE_TOKEN.
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-internal-token
+                  key: INTERNAL_SERVICE_TOKEN
           resources:
             requests:
               memory: "128Mi"

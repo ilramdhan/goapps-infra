@@ -5,6 +5,7 @@ resources:
 - ../../base
 patches:
 - path: patches/resources.yaml
+- path: patches/env-iam-storage.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
   newTag: b76ac57
