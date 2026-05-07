@@ -118,7 +118,7 @@ spec:
             - name: TRACING_ENABLED
               value: "true"
             - name: JAEGER_ENDPOINT
-              value: "jaeger-collector.monitoring.svc.cluster.local:4317"
+              value: "jaeger-collector.observability.svc.cluster.local:4317"
             # Storage (MinIO) - shared bucket, scoped by base_path per service
             - name: STORAGE_ENDPOINT
               value: "minio.minio.svc.cluster.local:9000"
