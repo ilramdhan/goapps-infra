@@ -1,0 +1,16 @@
+# Per-environment overrides: MinIO bucket + public URL for production.
+# Credentials and other connection settings come from the base deployment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-service
+          env:
+            - name: MINIO_BUCKET
+              value: "goapps-production"
+            - name: MINIO_PUBLIC_URL
+              value: "https://goapps.mutugading.com:30091"
