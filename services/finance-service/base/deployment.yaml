@@ -102,6 +102,30 @@ spec:
               value: "true"
             - name: JAEGER_ENDPOINT
               value: "jaeger-collector.observability.svc.cluster.local:4317"
+            # MinIO storage — used by GetExportDownloadURL to issue presigned
+            # download URLs for rm_cost_export artifacts. The presign client
+            # MUST be built against the same public endpoint browsers will
+            # reach because AWS SigV4 binds the signature to the Host header.
+            - name: MINIO_ENDPOINT
+              value: "minio.minio.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "goapps-staging"    # overridden per environment via kustomize
+            - name: MINIO_USE_SSL
+              value: "true"
+            - name: MINIO_INSECURE_SKIP_VERIFY
+              value: "true"              # self-signed certs in cluster
+            - name: MINIO_PUBLIC_URL
+              value: ""                  # overridden per environment via kustomize
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
           resources:
             requests:
               memory: "128Mi"
