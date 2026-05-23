@@ -1,0 +1,122 @@
+# Finance Cost Orchestrator Deployment
+# Phase C calc engine coordinator. Strict singleton (replicas=1): consumes
+# finance.cost.job_triggered, splits jobs into chunks, publishes to
+# finance.cost.chunk, and aggregates finance.cost.chunk.completed.
+# Coordinator state lives in PostgreSQL, but only ONE instance may consume the
+# job_triggered queue to avoid duplicate fan-out. NO HPA.
+# Exposes HTTP /metrics :8092 + HTTP /healthz :8082 (no gRPC).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-cost-orchestrator
+  labels:
+    app: finance-cost-orchestrator
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  strategy:
+    type: Recreate          # Singleton — never run two coordinators at once
+  selector:
+    matchLabels:
+      app: finance-cost-orchestrator
+  template:
+    metadata:
+      labels:
+        app: finance-cost-orchestrator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8092"
+        prometheus.io/path: "/metrics"
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: finance-cost-orchestrator
+          image: ghcr.io/mutugading/finance-cost-orchestrator:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8082
+              name: health
+            - containerPort: 8092
+              name: metrics
+          env:
+            - name: APP_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Database config (via PgBouncer per platform rule)
+            - name: DATABASE_HOST
+              value: "pgbouncer.database.svc.cluster.local"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: "goapps"
+            - name: DATABASE_SSLMODE
+              value: "disable"
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            # RabbitMQ config (constructed from secret user/password + service DNS)
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_PASSWORD
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.database.svc.cluster.local:5672/"
+            # JWT service secret — orchestrator validates internal service tokens
+            # / signs service-to-service calls. Maps to spec FINANCE_JWT_SERVICE_SECRET.
+            - name: FINANCE_JWT_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-auth-secret
+                  key: JWT_ACCESS_SECRET
+            # Health + metrics ports (HTTP, no gRPC)
+            - name: HEALTH_PORT
+              value: "8082"
+            - name: METRICS_PORT
+              value: "8092"
+            # Tracing
+            - name: TRACING_ENABLED
+              value: "true"
+            - name: JAEGER_ENDPOINT
+              value: "jaeger-collector.observability.svc.cluster.local:4317"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12    # 5 + (5*12) = 65s max startup time
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            periodSeconds: 5
+            failureThreshold: 3

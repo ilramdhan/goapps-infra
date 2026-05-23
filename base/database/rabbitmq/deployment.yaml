@@ -76,6 +76,26 @@ spec:
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
+            # Phase C calc-engine topology, loaded via load_definitions in
+            # the mounted rabbitmq.conf. See cost-queues-configmap.yaml.
+            - name: cost-definitions
+              mountPath: /etc/rabbitmq/definitions
+            - name: cost-conf
+              mountPath: /etc/rabbitmq/conf.d/20-cost-definitions.conf
+              subPath: rabbitmq.conf
+      volumes:
+        - name: cost-definitions
+          configMap:
+            name: rabbitmq-cost-definitions
+            items:
+              - key: definitions.json
+                path: definitions.json
+        - name: cost-conf
+          configMap:
+            name: rabbitmq-cost-definitions
+            items:
+              - key: rabbitmq.conf
+                path: rabbitmq.conf
   # Persistent storage to prevent data loss on restart
   volumeClaimTemplates:
     - metadata:

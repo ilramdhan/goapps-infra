@@ -1,0 +1,17 @@
+# Staging: lower resource limits (4c/8GB VPS).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-cost-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-cost-worker
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

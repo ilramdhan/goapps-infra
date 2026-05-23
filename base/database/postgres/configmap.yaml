@@ -11,14 +11,21 @@ data:
   # Memory budget: 2Gi container limit → 512MB shared_buffers (25%)
   postgresql.conf: |
     # Connection Settings
+    # max_connections raised to 200 for Phase C calc engine — finance-cost-worker
+    # fans out to many pods, all routed through PgBouncer (MAX_DB_CONNECTIONS=80).
     listen_addresses = '*'
-    max_connections = 150
+    max_connections = 200
 
-    # Memory Settings (tuned for 2Gi container limit)
-    shared_buffers = 512MB
-    effective_cache_size = 1536MB
-    work_mem = 8MB
-    maintenance_work_mem = 128MB
+    # Memory Settings
+    # NOTE: base values stay conservative because the staging postgres pod runs
+    # on a 4c/8GB VPS with a ~2Gi container limit. The full Phase C §6 tuning
+    # (shared_buffers=2GB, effective_cache_size=6GB) is only safe once the
+    # postgres container limit is raised on production (8c/16GB). Bump these in a
+    # production-only overlay when the limit is increased.
+    shared_buffers = 1GB
+    effective_cache_size = 3GB
+    work_mem = 16MB
+    maintenance_work_mem = 512MB
     temp_buffers = 16MB
 
     # WAL Settings
@@ -29,9 +36,14 @@ data:
 
     # Parallel Query (critical for costing batch operations)
     max_worker_processes = 8
-    max_parallel_workers = 4
-    max_parallel_workers_per_gather = 2
+    max_parallel_workers = 8
+    max_parallel_workers_per_gather = 4
     max_parallel_maintenance_workers = 2
+
+    # Autovacuum — tightened for the high-churn cost_* tables written during
+    # large calc batches (12K products x 500 params per job).
+    autovacuum_max_workers = 4
+    autovacuum_vacuum_scale_factor = 0.05
 
     # Query Planner
     random_page_cost = 1.1

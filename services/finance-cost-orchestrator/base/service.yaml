@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: finance-cost-orchestrator
+  labels:
+    app: finance-cost-orchestrator
+spec:
+  type: ClusterIP
+  ports:
+    - name: health
+      port: 8082
+      targetPort: 8082
+    - name: metrics
+      port: 8092
+      targetPort: 8092
+  selector:
+    app: finance-cost-orchestrator

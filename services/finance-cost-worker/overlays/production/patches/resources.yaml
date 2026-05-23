@@ -1,0 +1,17 @@
+# Production: full resource budget (8c/16GB VPS) per spec §5.1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-cost-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-cost-worker
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "768Mi"
+              cpu: "1000m"

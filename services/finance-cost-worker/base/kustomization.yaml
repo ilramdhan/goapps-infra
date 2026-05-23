@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - servicemonitor.yaml
+
+commonLabels:
+  app.kubernetes.io/name: finance-cost-worker
+  app.kubernetes.io/component: worker
+  app.kubernetes.io/part-of: goapps
