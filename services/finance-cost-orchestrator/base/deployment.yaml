@@ -89,6 +89,11 @@ spec:
               value: "8082"
             - name: METRICS_PORT
               value: "8092"
+            # Chunk packing: 100 products/chunk (was default 50) halves the
+            # per-chunk worker->finance RPC count at fan-out. Maps to viper
+            # orchestrator.chunk_size via AutomaticEnv.
+            - name: ORCHESTRATOR_CHUNK_SIZE
+              value: "100"
             # Tracing
             - name: TRACING_ENABLED
               value: "true"

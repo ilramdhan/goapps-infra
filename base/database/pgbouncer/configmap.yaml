@@ -12,8 +12,11 @@ data:
   # per-database [databases] block.
   POOL_MODE: "transaction"
   MAX_CLIENT_CONN: "2000"
-  DEFAULT_POOL_SIZE: "25"
-  MIN_POOL_SIZE: "5"
+  # Bumped 25->50 / 5->10 for Phase C calc load: at fan-out the worker fleet +
+  # finance + orchestrator + iam contend for transaction slots (transaction
+  # pool mode), so a larger default + warm minimum reduces queueing.
+  DEFAULT_POOL_SIZE: "50"
+  MIN_POOL_SIZE: "10"
   RESERVE_POOL_SIZE: "5"
   # Hard ceiling of server-side connections PgBouncer will open to PostgreSQL.
   # Kept below postgres max_connections to leave headroom for direct admin/
