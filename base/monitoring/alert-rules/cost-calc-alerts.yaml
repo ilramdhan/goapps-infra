@@ -1,0 +1,228 @@
+# Phase C cost calculation engine alerts.
+# Provisioned as Grafana-managed alert rules (same pattern as postgres-alerts.yaml),
+# loaded by the Grafana sidecar via the `grafana_alert: "1"` label.
+#
+# NOTE: the plan (§S8e.4) calls these "Prometheus alerts". This repo provisions
+# alerting through Grafana (Grafana unified alerting), not standalone Prometheus
+# PrometheusRule CRDs — so they are authored here in the Grafana provisioning
+# format to match the existing alert-rules/ files. The PromQL expressions are
+# identical to what a PrometheusRule would use.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-calc-alerts
+  namespace: monitoring
+  labels:
+    grafana_alert: "1"
+data:
+  cost-calc-alerts.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: Cost Calculation Engine Alerts
+        folder: Finance
+        interval: 1m
+        rules:
+          - uid: calc-job-stuck
+            title: Calc Job Stuck
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 1800
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # Proxy: active-jobs queue-depth gauge has stayed > 0 for the
+                  # whole 30m window with no completion, i.e. min over 30m > 0.
+                  expr: min_over_time(sum(finance_cost_job_queue_depth)[30m:1m]) > 0
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 30m
+            annotations:
+              summary: A calc job has been PROCESSING for over 30 minutes
+              description: The active-jobs queue-depth gauge has not returned to zero for 30m, indicating a stuck cost calculation job.
+            labels:
+              severity: warning
+            isPaused: false
+
+          - uid: calc-worker-crashloop
+            title: Calc Worker CrashLoop
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 900
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: rate(kube_pod_container_status_restarts_total{container="finance-cost-worker"}[15m]) > 0.1
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 5m
+            annotations:
+              summary: finance-cost-worker is crash-looping
+              description: A finance-cost-worker container is restarting at more than 0.1 restarts/15m.
+            labels:
+              severity: warning
+            isPaused: false
+
+          - uid: calc-chunk-retry-rate-high
+            title: Calc Chunk Retry Rate High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: sum(rate(finance_cost_chunks_total{status="FAILED"}[10m])) / sum(rate(finance_cost_chunks_total[10m])) > 0.05
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 10m
+            annotations:
+              summary: Cost chunk failure rate above 5%
+              description: More than 5% of cost chunks have failed over the last 10 minutes.
+            labels:
+              severity: warning
+            isPaused: false
+
+          - uid: calc-blocked-rate-high
+            title: Calc Blocked Rate High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 900
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: sum(rate(finance_cost_products_total{status="BLOCKED"}[15m])) / sum(rate(finance_cost_products_total[15m])) > 0.2
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 15m
+            annotations:
+              summary: Over 20% of products blocked during calculation
+              description: More than 20% of products are being BLOCKED over the last 15 minutes — likely missing master data or routing.
+            labels:
+              severity: info
+            isPaused: false
+
+          - uid: calc-db-pool-near-limit
+            title: Calc DB Pool Near Limit
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # finance_cost_db_pool_in_use is reported as a 0..1 utilization
+                  # ratio; alert at 85% of the pool.
+                  expr: max(finance_cost_db_pool_in_use) > 0.85
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 5m
+            annotations:
+              summary: Cost engine DB pool above 85% utilization
+              description: A cost-engine service is using more than 85% of its DB connection pool — risk of pool exhaustion / PgBouncer saturation.
+            labels:
+              severity: warning
+            isPaused: false

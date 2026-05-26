@@ -1,0 +1,191 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "description": "Phase C cost calculation engine — orchestrator + worker metrics",
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "stacking": {"group": "A", "mode": "none"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+                    "unit": "short"
+                }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+            "id": 1,
+            "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "Jobs / hour by status",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "sum by (status) (rate(finance_cost_jobs_total{namespace=\"$namespace\"}[5m])) * 3600", "legendFormat": "{{status}}", "refId": "A"}
+            ]
+        },
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "stacking": {"group": "A", "mode": "none"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+                    "unit": "s"
+                }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+            "id": 2,
+            "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "Chunk duration p50/p95/p99",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "histogram_quantile(0.50, sum by (le) (rate(finance_cost_chunk_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": "p50", "refId": "A"},
+                {"expr": "histogram_quantile(0.95, sum by (le) (rate(finance_cost_chunk_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": "p95", "refId": "B"},
+                {"expr": "histogram_quantile(0.99, sum by (le) (rate(finance_cost_chunk_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": "p99", "refId": "C"}
+            ]
+        },
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "stacking": {"group": "A", "mode": "none"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+                    "unit": "s"
+                }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+            "id": 3,
+            "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "Product compute duration p50/p95",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "histogram_quantile(0.50, sum by (le) (rate(finance_cost_product_compute_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": "p50", "refId": "A"},
+                {"expr": "histogram_quantile(0.95, sum by (le) (rate(finance_cost_product_compute_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": "p95", "refId": "B"}
+            ]
+        },
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1, "showPoints": "never", "stacking": {"group": "A", "mode": "normal"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+                    "unit": "short"
+                }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+            "id": 4,
+            "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "Blocked products by reason",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "sum by (block_reason) (rate(finance_cost_products_total{namespace=\"$namespace\", status=\"BLOCKED\"}[5m]))", "legendFormat": "{{block_reason}}", "refId": "A"}
+            ]
+        },
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never", "stacking": {"group": "A", "mode": "none"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+                    "unit": "short"
+                }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+            "id": 5,
+            "options": {"legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "Worker scaling (active chunks + pod count)",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "sum(finance_cost_worker_active_chunks{namespace=\"$namespace\"})", "legendFormat": "active chunks", "refId": "A"},
+                {"expr": "count(kube_pod_status_phase{namespace=\"$namespace\", pod=~\"finance-cost-worker.*\", phase=\"Running\"})", "legendFormat": "worker pods", "refId": "B"},
+                {"expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"$namespace\", horizontalpodautoscaler=\"finance-cost-worker-hpa\"}", "legendFormat": "max replicas", "refId": "C"}
+            ]
+        },
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "stacking": {"group": "A", "mode": "none"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.85}]},
+                    "unit": "percentunit"
+                }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+            "id": 6,
+            "options": {"legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "DB pool in-use by service",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "finance_cost_db_pool_in_use{namespace=\"$namespace\"}", "legendFormat": "{{app}}", "refId": "A"}
+            ]
+        },
+        {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "stacking": {"group": "A", "mode": "none"}},
+                    "mappings": [],
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+                    "unit": "short"
+                }
+            },
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+            "id": 7,
+            "options": {"legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+            "title": "Active jobs / queue depth",
+            "type": "timeseries",
+            "targets": [
+                {"expr": "sum(finance_cost_job_queue_depth{namespace=\"$namespace\"})", "legendFormat": "active jobs (queue depth gauge)", "refId": "A"},
+                {"expr": "rabbitmq_queue_messages_ready{queue=\"finance.cost.chunk\"}", "legendFormat": "chunk queue ready", "refId": "B"},
+                {"expr": "rabbitmq_queue_messages_ready{queue=\"finance.cost.job_triggered\"}", "legendFormat": "job_triggered ready", "refId": "C"}
+            ]
+        }
+    ],
+    "refresh": "30s",
+    "schemaVersion": 38,
+    "style": "dark",
+    "tags": ["go-apps", "finance", "cost-calc", "phase-c"],
+    "templating": {
+        "list": [
+            {
+                "current": {"selected": false, "text": "goapps-staging", "value": "goapps-staging"},
+                "hide": 0,
+                "includeAll": false,
+                "label": "Namespace",
+                "multi": false,
+                "name": "namespace",
+                "options": [
+                    {"selected": true, "text": "goapps-staging", "value": "goapps-staging"},
+                    {"selected": false, "text": "goapps-production", "value": "goapps-production"}
+                ],
+                "query": "goapps-staging,goapps-production",
+                "queryValue": "",
+                "skipUrlSync": false,
+                "type": "custom"
+            }
+        ]
+    },
+    "time": {"from": "now-6h", "to": "now"},
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Cost Calculation Engine",
+    "uid": "cost-calc-engine",
+    "version": 1
+}

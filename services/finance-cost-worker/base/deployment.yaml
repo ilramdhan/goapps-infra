@@ -1,0 +1,134 @@
+# Finance Cost Worker Deployment
+# Phase C calc engine worker. Consumes finance.cost.chunk, computes per-product
+# costs (calling finance-service gRPC for canonical data), and publishes
+# finance.cost.chunk.completed. Horizontally scaled by queue depth (HPA 2->50).
+# Exposes HTTP /metrics :8093 + HTTP /healthz :8083 (no gRPC server).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-cost-worker
+  labels:
+    app: finance-cost-worker
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: finance-cost-worker
+  template:
+    metadata:
+      labels:
+        app: finance-cost-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8093"
+        prometheus.io/path: "/metrics"
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: finance-cost-worker
+          image: ghcr.io/mutugading/finance-cost-worker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8083
+              name: health
+            - containerPort: 8093
+              name: metrics
+          env:
+            - name: APP_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Concurrency tuning — one chunk in flight per worker pod, scale OUT
+            # not up. See spec §5.1.
+            - name: GOMAXPROCS
+              value: "2"
+            - name: WORKER_PREFETCH
+              value: "1"
+            # Database config (via PgBouncer per platform rule)
+            - name: DATABASE_HOST
+              value: "pgbouncer.database.svc.cluster.local"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: "goapps"
+            - name: DATABASE_SSLMODE
+              value: "disable"
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            # RabbitMQ config (constructed from secret user/password + service DNS)
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_PASSWORD
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.database.svc.cluster.local:5672/"
+            # Finance gRPC client — worker calls finance-service for canonical data.
+            - name: FINANCE_GRPC_HOST
+              value: "finance-service.goapps-staging.svc.cluster.local"  # overridden per env via kustomize
+            - name: FINANCE_GRPC_PORT
+              value: "50051"
+            # Internal service-to-service token — sent as gRPC metadata to
+            # finance-service. Maps to spec SERVICE_AUTH_TOKEN.
+            - name: SERVICE_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-internal-token
+                  key: INTERNAL_SERVICE_TOKEN
+            # Health + metrics ports (HTTP, no gRPC)
+            - name: HEALTH_PORT
+              value: "8083"
+            - name: METRICS_PORT
+              value: "8093"
+            # Tracing
+            - name: TRACING_ENABLED
+              value: "true"
+            - name: JAEGER_ENDPOINT
+              value: "jaeger-collector.observability.svc.cluster.local:4317"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "768Mi"
+              cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            periodSeconds: 5
+            failureThreshold: 3

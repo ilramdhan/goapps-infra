@@ -42,9 +42,13 @@ spec:
             requests:
               memory: "512Mi"
               cpu: "250m"
+            # Limits raised 2Gi/1500m -> 3Gi/2000m for Phase C calc load (12k+
+            # product UPSERT bursts). Ceiling only — requests stay conservative
+            # so staging (4c/8GB) scheduling is unaffected; sits under the
+            # postgres VPA maxAllowed (4Gi/2000m).
             limits:
-              memory: "2Gi"
-              cpu: "1500m"
+              memory: "3Gi"
+              cpu: "2000m"
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data

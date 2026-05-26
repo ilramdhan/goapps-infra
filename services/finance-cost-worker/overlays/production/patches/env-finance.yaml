@@ -1,0 +1,14 @@
+# Per-environment override: finance-service gRPC target for production.
+# Token + DB/RMQ credentials still come from secrets in base/.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-cost-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-cost-worker
+          env:
+            - name: FINANCE_GRPC_HOST
+              value: "finance-service.goapps-production.svc.cluster.local"

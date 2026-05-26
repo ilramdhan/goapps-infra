@@ -63,9 +63,22 @@ helm upgrade --install loki grafana/loki-stack \
 echo -e "${GREEN}Loki stack installed!${NC}"
 
 # =============================================================================
-# Step 3: Apply custom dashboards and alerts
+# Step 3: Install prometheus-adapter (External Metrics API for worker HPA)
 # =============================================================================
-echo -e "${GREEN}[3/3] Applying custom dashboards and alerts...${NC}"
+echo -e "${GREEN}[3/4] Installing prometheus-adapter...${NC}"
+
+helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter \
+    -n monitoring \
+    -f "${INFRA_DIR}/base/monitoring/helm-values/prometheus-adapter.yaml" \
+    --wait --timeout 5m
+
+echo -e "${GREEN}prometheus-adapter installed!${NC}"
+echo "  Verify: kubectl get apiservice v1beta1.external.metrics.k8s.io"
+
+# =============================================================================
+# Step 4: Apply custom dashboards and alerts
+# =============================================================================
+echo -e "${GREEN}[4/4] Applying custom dashboards and alerts...${NC}"
 
 # Apply dashboards as ConfigMaps
 for dashboard in "${INFRA_DIR}"/base/monitoring/dashboards/*.json; do

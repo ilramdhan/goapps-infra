@@ -1,0 +1,8 @@
+# Staging: cap fan-out at 10 pods — the 4c/8GB VPS cannot run 50 worker pods.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finance-cost-worker-hpa
+spec:
+  minReplicas: 2
+  maxReplicas: 10

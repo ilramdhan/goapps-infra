@@ -1,0 +1,133 @@
+# RabbitMQ definitions for the Phase C calc engine topology.
+#
+# BELT-AND-SUSPENDERS: the finance-cost-orchestrator auto-declares this exact
+# topology on startup at runtime (exchanges, queues, bindings, DLX). This
+# definitions file pre-creates it at broker boot so the queues exist for the
+# HPA's `rabbitmq_queue_messages_ready{queue="finance.cost.chunk"}` metric and
+# for management-UI visibility even before the orchestrator first connects.
+#
+# Loaded via `load_definitions` in rabbitmq.conf (see deployment.yaml). The
+# RABBITMQ_DEFAULT_USER/PASS env vars still create the runtime admin user; this
+# file only declares exchanges/queues/bindings (no users — those would override
+# the secret-driven credentials).
+#
+# Topology:
+#   exchange finance.cost      (direct)  — primary work exchange
+#   exchange finance.cost.dlx  (direct)  — dead-letter exchange
+#   queue finance.cost.chunk            (durable, TTL 1h, max-len 100k, DLX->dlq)
+#   queue finance.cost.chunk.completed  (durable, TTL 30m)
+#   queue finance.cost.job_triggered    (durable)
+#   queue finance.cost.dlq              (durable)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-cost-definitions
+  namespace: database
+  labels:
+    app: rabbitmq
+data:
+  definitions.json: |
+    {
+      "rabbit_version": "3.13.0",
+      "users": [],
+      "vhosts": [
+        { "name": "/" }
+      ],
+      "permissions": [],
+      "parameters": [],
+      "policies": [],
+      "exchanges": [
+        {
+          "name": "finance.cost",
+          "vhost": "/",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        },
+        {
+          "name": "finance.cost.dlx",
+          "vhost": "/",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        }
+      ],
+      "queues": [
+        {
+          "name": "finance.cost.chunk",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-message-ttl": 3600000,
+            "x-max-length": 100000,
+            "x-dead-letter-exchange": "finance.cost.dlx",
+            "x-dead-letter-routing-key": "finance.cost.dlq"
+          }
+        },
+        {
+          "name": "finance.cost.chunk.completed",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-message-ttl": 1800000
+          }
+        },
+        {
+          "name": "finance.cost.job_triggered",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {}
+        },
+        {
+          "name": "finance.cost.dlq",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {}
+        }
+      ],
+      "bindings": [
+        {
+          "source": "finance.cost",
+          "vhost": "/",
+          "destination": "finance.cost.chunk",
+          "destination_type": "queue",
+          "routing_key": "finance.cost.chunk",
+          "arguments": {}
+        },
+        {
+          "source": "finance.cost",
+          "vhost": "/",
+          "destination": "finance.cost.chunk.completed",
+          "destination_type": "queue",
+          "routing_key": "finance.cost.chunk.completed",
+          "arguments": {}
+        },
+        {
+          "source": "finance.cost",
+          "vhost": "/",
+          "destination": "finance.cost.job_triggered",
+          "destination_type": "queue",
+          "routing_key": "finance.cost.job_triggered",
+          "arguments": {}
+        },
+        {
+          "source": "finance.cost.dlx",
+          "vhost": "/",
+          "destination": "finance.cost.dlq",
+          "destination_type": "queue",
+          "routing_key": "finance.cost.dlq",
+          "arguments": {}
+        }
+      ]
+    }
+  rabbitmq.conf: |
+    # Load the Phase C calc-engine topology at broker boot.
+    load_definitions = /etc/rabbitmq/definitions/definitions.json
