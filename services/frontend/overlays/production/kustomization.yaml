@@ -10,4 +10,4 @@ patches:
 - path: patches/env-backend.yaml
 images:
 - name: ghcr.io/mutugading/goapps-frontend
-  newTag: c003ce5
+  newTag: f6a6dee
