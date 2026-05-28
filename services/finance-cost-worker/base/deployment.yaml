@@ -116,19 +116,19 @@ spec:
           startupProbe:
             httpGet:
               path: /healthz
-              port: 8083
+              port: 8093
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8083
+              port: 8093
             periodSeconds: 10
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 8083
+              port: 8093
             periodSeconds: 5
             failureThreshold: 3
