@@ -109,19 +109,19 @@ spec:
           startupProbe:
             httpGet:
               path: /healthz
-              port: 8082
+              port: 8092
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 12    # 5 + (5*12) = 65s max startup time
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8082
+              port: 8092
             periodSeconds: 10
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 8082
+              port: 8092
             periodSeconds: 5
             failureThreshold: 3
