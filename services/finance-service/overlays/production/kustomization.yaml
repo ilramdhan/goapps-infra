@@ -9,6 +9,7 @@ patches:
 - path: patches/ingress-host.yaml
 - path: patches/env-cors.yaml
 - path: patches/env-storage.yaml
+- path: patches/env-oracle.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
   newTag: 2e17dee
