@@ -11,4 +11,4 @@ patches:
 - path: patches/env-storage.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: bbb088d
+  newTag: 2e17dee
