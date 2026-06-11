@@ -88,18 +88,25 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
       template:
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
+          initContainers:
+            - name: copy-mc
+              image: minio/mc:latest
+              command: ["/bin/sh", "-c", "cp $(which mc) /tools/mc && chmod +x /tools/mc"]
+              volumeMounts:
+                - name: shared-tools
+                  mountPath: /tools
           containers:
             - name: backup
               image: postgres:18-alpine
               command: ["/bin/sh", "-c"]
               args:
                 - |
-                  apk add --no-cache curl bash
-                  curl -o /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-                  chmod +x /usr/local/bin/mc
+                  cp /tools/mc /usr/local/bin/mc
                   /scripts/backup.sh
               env:
                 - name: ENVIRONMENT
@@ -154,6 +161,8 @@ spec:
                   mountPath: /backup
                 - name: backup-scripts
                   mountPath: /scripts
+                - name: shared-tools
+                  mountPath: /tools
           volumes:
             - name: backup-storage
               hostPath:
@@ -163,6 +172,10 @@ spec:
               configMap:
                 name: backup-scripts
                 defaultMode: 0755
+            - name: shared-tools
+              emptyDir: {}
+            - name: shared-tools
+              emptyDir: {}
 ---
 # Afternoon Backup - 2 PM
 apiVersion: batch/v1
@@ -178,18 +191,25 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
       template:
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
+          initContainers:
+            - name: copy-mc
+              image: minio/mc:latest
+              command: ["/bin/sh", "-c", "cp $(which mc) /tools/mc && chmod +x /tools/mc"]
+              volumeMounts:
+                - name: shared-tools
+                  mountPath: /tools
           containers:
             - name: backup
               image: postgres:18-alpine
               command: ["/bin/sh", "-c"]
               args:
                 - |
-                  apk add --no-cache curl bash
-                  curl -o /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-                  chmod +x /usr/local/bin/mc
+                  cp /tools/mc /usr/local/bin/mc
                   /scripts/backup.sh
               env:
                 - name: ENVIRONMENT
@@ -244,6 +264,8 @@ spec:
                   mountPath: /backup
                 - name: backup-scripts
                   mountPath: /scripts
+                - name: shared-tools
+                  mountPath: /tools
           volumes:
             - name: backup-storage
               hostPath:
@@ -253,6 +275,10 @@ spec:
               configMap:
                 name: backup-scripts
                 defaultMode: 0755
+            - name: shared-tools
+              emptyDir: {}
+            - name: shared-tools
+              emptyDir: {}
 ---
 # Night Backup - 10 PM
 apiVersion: batch/v1
@@ -268,18 +294,25 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
       template:
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
+          initContainers:
+            - name: copy-mc
+              image: minio/mc:latest
+              command: ["/bin/sh", "-c", "cp $(which mc) /tools/mc && chmod +x /tools/mc"]
+              volumeMounts:
+                - name: shared-tools
+                  mountPath: /tools
           containers:
             - name: backup
               image: postgres:18-alpine
               command: ["/bin/sh", "-c"]
               args:
                 - |
-                  apk add --no-cache curl bash
-                  curl -o /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-                  chmod +x /usr/local/bin/mc
+                  cp /tools/mc /usr/local/bin/mc
                   /scripts/backup.sh
               env:
                 - name: ENVIRONMENT
@@ -334,6 +367,8 @@ spec:
                   mountPath: /backup
                 - name: backup-scripts
                   mountPath: /scripts
+                - name: shared-tools
+                  mountPath: /tools
           volumes:
             - name: backup-storage
               hostPath:
@@ -343,3 +378,5 @@ spec:
               configMap:
                 name: backup-scripts
                 defaultMode: 0755
+            - name: shared-tools
+              emptyDir: {}
