@@ -176,8 +176,6 @@ spec:
                 defaultMode: 0755
             - name: shared-tools
               emptyDir: {}
-            - name: shared-tools
-              emptyDir: {}
 ---
 # Afternoon Backup - 2 PM
 apiVersion: batch/v1
@@ -277,8 +275,6 @@ spec:
               configMap:
                 name: backup-scripts
                 defaultMode: 0755
-            - name: shared-tools
-              emptyDir: {}
             - name: shared-tools
               emptyDir: {}
 ---
