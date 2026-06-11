@@ -96,7 +96,7 @@ spec:
           initContainers:
             - name: copy-mc
               image: minio/mc:latest
-              command: ["/bin/sh", "-c", "cp $(which mc) /tools/mc && chmod +x /tools/mc"]
+              command: ["cp", "/usr/bin/mc", "/tools/mc"]
               volumeMounts:
                 - name: shared-tools
                   mountPath: /tools
@@ -199,7 +199,7 @@ spec:
           initContainers:
             - name: copy-mc
               image: minio/mc:latest
-              command: ["/bin/sh", "-c", "cp $(which mc) /tools/mc && chmod +x /tools/mc"]
+              command: ["cp", "/usr/bin/mc", "/tools/mc"]
               volumeMounts:
                 - name: shared-tools
                   mountPath: /tools
@@ -302,7 +302,7 @@ spec:
           initContainers:
             - name: copy-mc
               image: minio/mc:latest
-              command: ["/bin/sh", "-c", "cp $(which mc) /tools/mc && chmod +x /tools/mc"]
+              command: ["cp", "/usr/bin/mc", "/tools/mc"]
               volumeMounts:
                 - name: shared-tools
                   mountPath: /tools
