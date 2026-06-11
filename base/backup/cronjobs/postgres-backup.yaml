@@ -39,9 +39,11 @@ data:
       if [ "${MINIO_USE_SSL}" = "true" ]; then
         mc alias set minio https://${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 --insecure
         mc cp "${BACKUP_FILE}" minio/postgres-backups/ --insecure
+        mc rm --recursive --force --older-than 168h0m0s minio/postgres-backups/ --insecure 2>/dev/null || true
       else
         mc alias set minio http://${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4
         mc cp "${BACKUP_FILE}" minio/postgres-backups/
+        mc rm --recursive --force --older-than 168h0m0s minio/postgres-backups/ 2>/dev/null || true
       fi
       echo "[$(date)] Uploaded to MinIO"
     fi
