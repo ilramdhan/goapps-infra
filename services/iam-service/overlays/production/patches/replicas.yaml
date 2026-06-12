@@ -1,7 +1,10 @@
-# Production: Two replicas minimum
+# IAM runs as a single replica because the notification broadcaster is in-memory.
+# Multi-replica would silently drop SSE events: Finance calls CreateNotification on
+# Pod A while the user's SSE stream is connected to Pod B — Pod B's broadcaster
+# never fires. Proper fix requires Redis pub/sub in the Broadcaster (future work).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: iam-service
 spec:
-  replicas: 2
+  replicas: 1
