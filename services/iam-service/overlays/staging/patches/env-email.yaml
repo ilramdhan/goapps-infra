@@ -9,4 +9,4 @@ spec:
         - name: iam-service
           env:
             - name: EMAIL_APP_URL
-              value: "https://staging-goapps.mutugading.com"
+              value: "https://staging-goapps.mutugading.com:24169"
