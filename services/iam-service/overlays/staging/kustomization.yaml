@@ -9,6 +9,7 @@ patches:
 - path: patches/ingress-host.yaml
 - path: patches/env-cors.yaml
 - path: patches/env-storage.yaml
+- path: patches/env-email.yaml
 images:
 - name: ghcr.io/mutugading/iam-service
   newTag: 7b6e7fe

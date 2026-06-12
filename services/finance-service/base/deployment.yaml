@@ -97,6 +97,16 @@ spec:
                   key: RABBITMQ_PASSWORD
             - name: RABBITMQ_URL
               value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.database.svc.cluster.local:5672/"
+            # IAM gRPC client — used for notification fan-out on CPR lifecycle + @mention
+            - name: IAM_GRPC_HOST
+              value: "iam-service"
+            - name: IAM_GRPC_PORT
+              value: "50052"
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-internal-token
+                  key: INTERNAL_SERVICE_TOKEN
             # Tracing
             - name: TRACING_ENABLED
               value: "true"
