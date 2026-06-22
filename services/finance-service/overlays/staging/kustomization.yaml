@@ -12,4 +12,4 @@ patches:
 - path: patches/env-oracle.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: 35420fa
+  newTag: a6daa67
