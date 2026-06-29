@@ -1,8 +1,10 @@
 # MinIO environment patch for Production
 # Sets the correct environment variables for direct port access (not subpath)
-# 
+#
 # Required variables:
 # - MINIO_BROWSER_REDIRECT_URL: Full URL for browser redirects (with port)
+# - MINIO_API_CORS_ALLOW_ORIGIN: Frontend origin allowed to PUT directly to MinIO
+#   via presigned URL (bulk-import v2). Without it the browser PUT is blocked by CORS.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,3 +18,5 @@ spec:
           env:
             - name: MINIO_BROWSER_REDIRECT_URL
               value: "https://goapps.mutugading.com:30090/"
+            - name: MINIO_API_CORS_ALLOW_ORIGIN
+              value: "https://goapps.mutugading.com"

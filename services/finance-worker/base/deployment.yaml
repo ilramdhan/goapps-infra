@@ -137,7 +137,10 @@ spec:
               memory: "128Mi"
               cpu: "100m"
             limits:
-              memory: "512Mi"
+              # 1Gi headroom for the v2 ETL bulk import. The import streams the
+              # uploaded file into staging via COPY (no full-file buffering), so
+              # real usage stays low; 1Gi is comfortable on the constrained nodes.
+              memory: "1Gi"
               cpu: "500m"
           # Worker has no ports — use exec-based liveness probe
           livenessProbe:
