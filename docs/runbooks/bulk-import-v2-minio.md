@@ -17,8 +17,13 @@
 
 | Env | File | Origin |
 |-----|------|--------|
-| Staging | `overlays/staging/minio/minio-patch.yaml` | `https://staging-goapps.mutugading.com` |
-| Production | `overlays/production/minio/minio-patch.yaml` | `https://goapps.mutugading.com` |
+| Staging | `overlays/staging/minio/minio-patch.yaml` | `https://staging-goapps.mutugading.com:24169` |
+| Production | `overlays/production/minio/minio-patch.yaml` | `https://goapps.mutugading.com:24169` |
+
+> The origin MUST match the frontend page origin **exactly, including the port**. The
+> app is served on the ingress NodePort `:24169`, so the browser's `Origin` header is
+> `https://<host>:24169` — an allow-origin without the port (i.e. implicit 443) will NOT
+> match and the presigned PUT is blocked by CORS. Update this value if that port changes.
 
 Applied automatically when the `infra-minio-<env>` ArgoCD app syncs (staging auto; production manual).
 MinIO must restart to pick up the env var — ArgoCD rolls the deployment on change.
@@ -29,7 +34,7 @@ MinIO must restart to pick up the env var — ArgoCD rolls the deployment on cha
 # Preflight from the frontend origin to the public MinIO API endpoint (NodePort :30091).
 # Expect HTTP 200 and an Access-Control-Allow-Origin header echoing the origin.
 curl -sS -i -X OPTIONS \
-  -H "Origin: https://staging-goapps.mutugading.com" \
+  -H "Origin: https://staging-goapps.mutugading.com:24169" \
   -H "Access-Control-Request-Method: PUT" \
   "https://staging-goapps.mutugading.com:30091/goapps-staging/" --insecure \
   | grep -i "access-control-allow-origin\|HTTP/"
