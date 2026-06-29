@@ -19,4 +19,4 @@ spec:
             - name: MINIO_BROWSER_REDIRECT_URL
               value: "https://goapps.mutugading.com:30090/"
             - name: MINIO_API_CORS_ALLOW_ORIGIN
-              value: "https://goapps.mutugading.com"
+              value: "https://goapps.mutugading.com:24169"
