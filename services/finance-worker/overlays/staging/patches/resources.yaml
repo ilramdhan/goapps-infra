@@ -1,4 +1,7 @@
-# Staging: Lower resource limits for worker
+# Staging: worker resource limits.
+# The v2 ETL bulk import streams the uploaded file into staging via COPY, so the
+# previous 3Gi headroom (sized for the old in-memory chunked importer) is no longer
+# needed — 1Gi is ample and frees ~2Gi on the constrained 4vCPU/8GB staging node.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,5 +16,5 @@ spec:
               memory: "128Mi"
               cpu: "100m"
             limits:
-              memory: "3Gi"
+              memory: "1Gi"
               cpu: "500m"
