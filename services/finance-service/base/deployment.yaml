@@ -108,11 +108,11 @@ spec:
                   name: goapps-internal-token
                   key: INTERNAL_SERVICE_TOKEN
             # Shared service-to-service secret validated on ProcessChunkInternal
-            # (x-service-secret). MUST equal what finance-cost-worker sends, which
-            # is SERVICE_AUTH_TOKEN sourced from this same goapps-internal-token
-            # secret. Without this env, jwt.service_secret falls back to the
+            # (x-service-secret). MUST equal what finance-cost-worker sends.
+            # Viper AutomaticEnv maps jwt.service_secret -> JWT_SERVICE_SECRET
+            # (no prefix, dots->underscores). Without this env, viper keeps the
             # config.yaml dev default and every worker calc call is rejected.
-            - name: FINANCE_JWT_SERVICE_SECRET
+            - name: JWT_SERVICE_SECRET
               valueFrom:
                 secretKeyRef:
                   name: goapps-internal-token
