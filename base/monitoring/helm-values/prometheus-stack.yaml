@@ -23,6 +23,15 @@ grafana:
     accessModes:
       - ReadWriteOnce
 
+  # MANDATORY with persistence: the chart default (RollingUpdate) starts the
+  # new pod while the old one still holds the PVC — Grafana's sqlite database
+  # is then locked, the new pod CrashLoopBackOffs, and `helm upgrade --wait`
+  # times out ("context deadline exceeded", seen 2026-07-02 on staging).
+  # Recreate stops the old pod first: ~30-60s Grafana downtime per upgrade,
+  # no lock contention. Dashboards/alerts are safe (PVC + sidecar).
+  deploymentStrategy:
+    type: Recreate
+
   # ========================================
   # Fix init-chown-data permission denied on PVC
   # https://github.com/grafana/helm-charts/issues/1256
