@@ -33,21 +33,23 @@ data:
                 model:
                   expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -70,21 +72,23 @@ data:
                 model:
                   expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -107,21 +111,23 @@ data:
                 model:
                   expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -152,21 +158,23 @@ data:
                 model:
                   expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff", namespace!~"database"} > 0
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 2m
@@ -189,21 +197,23 @@ data:
                 model:
                   expr: kube_pod_status_phase{phase="Pending"} == 1
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 10m
@@ -224,23 +234,25 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} > 0
+                  expr: increase(kube_pod_container_status_restarts_total[10m]) > 0 and on(namespace, pod, container) kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 0s
@@ -263,21 +275,23 @@ data:
                 model:
                   expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 1m
@@ -300,21 +314,23 @@ data:
                 model:
                   expr: sum(rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m])) by (namespace, pod) * 100 > 80
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -345,21 +361,23 @@ data:
                 model:
                   expr: kube_deployment_status_replicas_unavailable > 0
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -382,21 +400,23 @@ data:
                 model:
                   expr: kube_deployment_status_observed_generation != kube_deployment_metadata_generation
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 10m
@@ -427,21 +447,23 @@ data:
                 model:
                   expr: kube_horizontalpodautoscaler_status_current_replicas == kube_horizontalpodautoscaler_spec_max_replicas
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 10m
@@ -472,21 +494,23 @@ data:
                 model:
                   expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 85
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -505,80 +529,6 @@ data:
         folder: Database
         interval: 1m
         rules:
-          - uid: postgres-down
-            title: PostgreSQL Down
-            condition: C
-            data:
-              - refId: A
-                relativeTimeRange:
-                  from: 300
-                  to: 0
-                datasourceUid: prometheus
-                model:
-                  expr: pg_up == 0
-                  refId: A
-              - refId: C
-                datasourceUid: __expr__
-                model:
-                  conditions:
-                    - evaluator:
-                        params: [0]
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
-                  refId: C
-                  type: classic_conditions
-            noDataState: OK
-            execErrState: Error
-            for: 2m
-            annotations:
-              summary: "🔴 PostgreSQL is DOWN"
-              description: "PostgreSQL exporter is not responding"
-            labels:
-              severity: critical
-            isPaused: false
-
-          - uid: postgres-high-connections
-            title: PostgreSQL High Connection Usage
-            condition: C
-            data:
-              - refId: A
-                relativeTimeRange:
-                  from: 300
-                  to: 0
-                datasourceUid: prometheus
-                model:
-                  expr: sum(pg_stat_database_numbackends) / max(pg_settings_max_connections) * 100 > 80
-                  refId: A
-              - refId: C
-                datasourceUid: __expr__
-                model:
-                  conditions:
-                    - evaluator:
-                        params: [0]
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
-                  refId: C
-                  type: classic_conditions
-            noDataState: OK
-            execErrState: Error
-            for: 5m
-            annotations:
-              summary: "PostgreSQL connection usage above 80%"
-              description: "Database connections are running high"
-            labels:
-              severity: warning
-            isPaused: false
-
           - uid: postgres-backup-failed
             title: PostgreSQL Backup Failed
             condition: C
@@ -591,21 +541,23 @@ data:
                 model:
                   expr: kube_job_status_failed{namespace="database",job_name=~"postgres-backup.*"} > 0
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
@@ -628,21 +580,23 @@ data:
                 model:
                   expr: kube_deployment_status_replicas_available{namespace="database",deployment="redis"} == 0
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 2m
@@ -665,21 +619,23 @@ data:
                 model:
                   expr: kube_statefulset_status_replicas_ready{namespace="database",statefulset="rabbitmq"} == 0
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 2m
@@ -710,21 +666,23 @@ data:
                 model:
                   expr: kube_endpoint_address_available == 0
                   refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
               - refId: C
                 datasourceUid: __expr__
                 model:
+                  type: threshold
+                  expression: B
                   conditions:
                     - evaluator:
                         params: [0]
                         type: gt
-                      operator:
-                        type: and
-                      query:
-                        params: [A]
-                      reducer:
-                        type: last
                   refId: C
-                  type: classic_conditions
             noDataState: OK
             execErrState: Error
             for: 5m
