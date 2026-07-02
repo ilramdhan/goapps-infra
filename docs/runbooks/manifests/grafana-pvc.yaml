@@ -1,0 +1,32 @@
+# PVC for Grafana persistence, pre-created with Helm adoption metadata.
+#
+# Used by docs/runbooks/monitoring-alerting-activation-2026-07.md (staging
+# recovery): the 2026-07-02 upgrade recorded this PVC in the release manifest
+# but it ended up deleted from the cluster, so every subsequent
+# `helm upgrade` fails with:
+#   UPGRADE FAILED: persistentvolumeclaims "prometheus-grafana" not found
+#
+# Applying this file recreates the PVC with the managed-by label and release
+# annotations Helm requires to adopt an existing resource. Safe to apply on
+# any cluster where the PVC is missing; a no-op (or harmless patch) if it
+# already exists.
+#
+#   kubectl apply -f docs/runbooks/manifests/grafana-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: prometheus
+  annotations:
+    meta.helm.sh/release-name: prometheus
+    meta.helm.sh/release-namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
