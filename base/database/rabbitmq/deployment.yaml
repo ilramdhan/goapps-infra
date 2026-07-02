@@ -27,6 +27,8 @@ spec:
               name: amqp
             - containerPort: 15672
               name: management
+            - containerPort: 15692
+              name: metrics
           env:
             - name: RABBITMQ_DEFAULT_USER
               valueFrom:
@@ -40,10 +42,10 @@ spec:
                   key: RABBITMQ_PASSWORD
           resources:
             requests:
-              cpu: 100m
+              cpu: 250m
               memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 1000m
               memory: 512Mi
           startupProbe:
             exec:
@@ -83,6 +85,14 @@ spec:
             - name: cost-conf
               mountPath: /etc/rabbitmq/conf.d/20-cost-definitions.conf
               subPath: rabbitmq.conf
+            # Prometheus metrics: pinned plugin set + per-object queue metrics
+            # (see prometheus-configmap.yaml)
+            - name: prometheus-conf
+              mountPath: /etc/rabbitmq/enabled_plugins
+              subPath: enabled_plugins
+            - name: prometheus-conf
+              mountPath: /etc/rabbitmq/conf.d/30-prometheus.conf
+              subPath: 30-prometheus.conf
       volumes:
         - name: cost-definitions
           configMap:
@@ -96,6 +106,9 @@ spec:
             items:
               - key: rabbitmq.conf
                 path: rabbitmq.conf
+        - name: prometheus-conf
+          configMap:
+            name: rabbitmq-prometheus-conf
   # Persistent storage to prevent data loss on restart
   volumeClaimTemplates:
     - metadata:
@@ -123,5 +136,8 @@ spec:
     - port: 15672
       targetPort: 15672
       name: management
+    - port: 15692
+      targetPort: 15692
+      name: metrics
   selector:
     app: rabbitmq

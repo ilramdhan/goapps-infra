@@ -98,6 +98,7 @@ spec:
           initContainers:
             - name: copy-mc
               image: minio/mc:latest
+              imagePullPolicy: IfNotPresent
               command: ["cp", "/usr/bin/mc", "/tools/mc"]
               volumeMounts:
                 - name: shared-tools
@@ -199,6 +200,7 @@ spec:
           initContainers:
             - name: copy-mc
               image: minio/mc:latest
+              imagePullPolicy: IfNotPresent
               command: ["cp", "/usr/bin/mc", "/tools/mc"]
               volumeMounts:
                 - name: shared-tools
@@ -300,6 +302,7 @@ spec:
           initContainers:
             - name: copy-mc
               image: minio/mc:latest
+              imagePullPolicy: IfNotPresent
               command: ["cp", "/usr/bin/mc", "/tools/mc"]
               volumeMounts:
                 - name: shared-tools

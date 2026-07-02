@@ -1,0 +1,9 @@
+# Production runs at least 2 replicas for availability. The deployment's
+# replicas patch alone is not enough: the HPA (base minReplicas: 1) owns the
+# replica count and scales back down to 1 off-peak.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend
+spec:
+  minReplicas: 2

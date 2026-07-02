@@ -7,6 +7,19 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Optional environment argument (staging | production). When given, a small
+# per-env values file is layered on top of the shared prometheus-stack.yaml
+# (helm deep-merges, so only server.domain/root_url and smtp.from_name change).
+ENVIRONMENT="${1:-}"
+ENV_VALUES_FILE=""
+if [ -n "$ENVIRONMENT" ]; then
+    ENV_VALUES_FILE="${INFRA_DIR}/base/monitoring/helm-values/prometheus-stack-${ENVIRONMENT}.yaml"
+    if [ ! -f "$ENV_VALUES_FILE" ]; then
+        echo "ERROR: unknown environment '${ENVIRONMENT}' (expected: staging | production)"
+        exit 1
+    fi
+fi
+
 echo "=================================================="
 echo "  Monitoring Stack Installation"
 echo "=================================================="
@@ -44,6 +57,7 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
     -n monitoring \
     --create-namespace \
     -f "${INFRA_DIR}/base/monitoring/helm-values/prometheus-stack.yaml" \
+    ${ENV_VALUES_FILE:+-f "$ENV_VALUES_FILE"} \
     --set grafana.adminPassword="${GRAFANA_PASSWORD}" \
     --set grafana.assertNoLeakedSecrets=false \
     --wait --timeout 10m
@@ -94,9 +108,9 @@ for dashboard in "${INFRA_DIR}"/base/monitoring/dashboards/*.json; do
     fi
 done
 
-# Apply alert rules
-if [ -f "${INFRA_DIR}/base/monitoring/alert-rules/grafana-alerts.yaml" ]; then
-    kubectl apply -f "${INFRA_DIR}/base/monitoring/alert-rules/grafana-alerts.yaml" -n monitoring
+# Apply alert rules (ConfigMaps picked up by the Grafana alerts sidecar)
+if [ -f "${INFRA_DIR}/base/monitoring/alert-rules/kustomization.yaml" ]; then
+    kubectl apply -k "${INFRA_DIR}/base/monitoring/alert-rules"
     echo "  Applied alert rules"
 fi
 

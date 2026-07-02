@@ -1,0 +1,19 @@
+# ============================================================================
+# PRODUCTION-ONLY overrides, layered on top of prometheus-stack.yaml:
+#   helm upgrade ... -f prometheus-stack.yaml -f prometheus-stack-production.yaml
+#
+# Helm deep-merges these maps, so everything in prometheus-stack.yaml
+# (persistence, sidecars, datasources, smtp host/user, ...) stays untouched.
+# Only the keys below are overridden.
+# ============================================================================
+grafana:
+  "grafana.ini":
+    server:
+      # Makes the "View alert" links in email point at the real host instead
+      # of http://localhost/grafana/... and identifies the cluster.
+      # :24169 is the ingress NodePort the platform is served on (see
+      # docs/runbooks/bulk-import-v2-minio.md and the CORS overlay patches).
+      domain: goapps.mutugading.com
+      root_url: "https://goapps.mutugading.com:24169/grafana/"
+    smtp:
+      from_name: "GoApps Production Monitoring"

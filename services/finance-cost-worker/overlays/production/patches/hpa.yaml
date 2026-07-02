@@ -5,4 +5,4 @@ metadata:
   name: finance-cost-worker-hpa
 spec:
   minReplicas: 2
-  maxReplicas: 50
+  maxReplicas: 20
