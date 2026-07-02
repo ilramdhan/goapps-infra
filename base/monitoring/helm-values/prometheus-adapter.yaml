@@ -36,14 +36,20 @@ resources:
 rules:
   default: false
   external:
-    # NOTE: no namespace resource override, deliberately. The RabbitMQ series
-    # carries namespace="database" (where the broker is scraped), while the
-    # HPA asks for this external metric from goapps-staging/goapps-production.
-    # A namespace override would make the adapter filter by the HPA's
-    # namespace and always return an empty result. Without it the metric is
-    # served cluster-wide to any namespace, which is what a shared-broker
-    # queue-depth metric should be.
+    # Two subtleties, both verified live on 2026-07-02:
+    # 1. The `resources` namespace override MUST be present: the adapter
+    #    always converts the HPA's namespace into a label matcher before
+    #    building the query, and errors with "no generic resource label form
+    #    specified" if the rule has no mapping.
+    # 2. metricsQuery is a LITERAL query (no <<.LabelMatchers>>): the
+    #    generated namespace matcher is therefore never inserted, so an HPA
+    #    in goapps-staging/goapps-production can read this metric even though
+    #    the series carries namespace="database" (where the broker lives).
     - seriesQuery: 'rabbitmq_queue_messages_ready{queue="finance.cost.chunk"}'
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
       name:
         as: "rabbitmq_queue_messages_ready"
       metricsQuery: 'sum(rabbitmq_queue_messages_ready{queue="finance.cost.chunk"})'
