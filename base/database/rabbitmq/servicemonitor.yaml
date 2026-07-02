@@ -1,0 +1,23 @@
+# Prometheus scrape config for RabbitMQ (rabbitmq_prometheus plugin, :15692).
+# Required by the finance-cost-worker HPA: prometheus-adapter serves
+# rabbitmq_queue_messages_ready from Prometheus, and Prometheus only has it
+# if RabbitMQ is scraped.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rabbitmq
+  namespace: database
+  labels:
+    app: rabbitmq
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: rabbitmq
+  namespaceSelector:
+    matchNames:
+      - database
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics

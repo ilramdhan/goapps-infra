@@ -1,0 +1,25 @@
+# RabbitMQ Prometheus metrics configuration.
+#
+# Two pieces, both required for the finance-cost-worker HPA metric
+# `rabbitmq_queue_messages_ready{queue="finance.cost.chunk"}`:
+#
+#   enabled_plugins    — pins the plugin set explicitly so rabbitmq_prometheus
+#                        is guaranteed on (deterministic across image updates;
+#                        dependencies like rabbitmq_management_agent are
+#                        auto-enabled). Serves /metrics on :15692.
+#   30-prometheus.conf — per-object metrics. Without this the default /metrics
+#                        endpoint only exposes AGGREGATED queue totals with no
+#                        `queue` label, and the HPA/adapter query returns
+#                        nothing. Cardinality is tiny here (4 queues).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-prometheus-conf
+  namespace: database
+  labels:
+    app: rabbitmq
+data:
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_prometheus].
+  30-prometheus.conf: |
+    prometheus.return_per_object_metrics = true
