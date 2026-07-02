@@ -60,14 +60,14 @@ spec:
             - name: LOG_LEVEL
               value: "info"
             - name: MEMORY_MAX_TRACES
-              value: "10000"
+              value: "5000"
           resources:
             requests:
               cpu: 50m
               memory: 128Mi
             limits:
               cpu: 300m
-              memory: 384Mi
+              memory: 768Mi
           readinessProbe:
             httpGet:
               path: /
