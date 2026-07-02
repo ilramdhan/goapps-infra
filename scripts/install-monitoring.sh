@@ -114,11 +114,13 @@ if [ -f "${INFRA_DIR}/base/monitoring/alert-rules/kustomization.yaml" ]; then
     echo "  Applied alert rules"
 fi
 
-# Apply datasources
-if [ -f "${INFRA_DIR}/base/monitoring/datasources/unified-datasources.yaml" ]; then
-    kubectl apply -f "${INFRA_DIR}/base/monitoring/datasources/unified-datasources.yaml" -n monitoring
-    echo "  Applied datasources"
-fi
+# Datasources are managed EXCLUSIVELY by Helm values (grafana.additionalDataSources
+# in prometheus-stack.yaml) — see docs/INFRA_STABILITY_GUIDE.md. The old
+# grafana-unified-datasources ConfigMap duplicated them with a wrong Prometheus
+# URL (missing the /prometheus route prefix) and can fail Grafana v12+ startup
+# provisioning. Remove it if a previous script version planted it.
+kubectl delete configmap grafana-unified-datasources -n monitoring --ignore-not-found
+echo "  Removed legacy datasource ConfigMap (if present)"
 
 echo ""
 echo "=================================================="

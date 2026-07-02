@@ -224,8 +224,6 @@ goapps-infra/
 │   │   │   ├── grafana-dashboard-postgres.json
 │   │   │   ├── grafana-dashboard-postgres-configmap.yaml
 │   │   │   └── grafana-dashboard-loki.json
-│   │   ├── datasources/
-│   │   │   └── unified-datasources.yaml
 │   │   └── alert-rules/               # Grafana/Prometheus alert rules
 │   │       ├── grafana-alert-rules.yaml
 │   │       ├── grafana-alertrules-configmap.yaml
@@ -506,7 +504,7 @@ Installed via Helm charts. Configuration in `base/monitoring/helm-values/`.
   - GoApps Service Dashboard (`grafana-dashboard-go-apps.json`)
   - PostgreSQL Dashboard (`grafana-dashboard-postgres.json`)
   - Loki Log Dashboard (`grafana-dashboard-loki.json`)
-- **Datasources**: Prometheus + Loki (configured in `datasources/unified-datasources.yaml`)
+- **Datasources**: Prometheus + Loki — managed EXCLUSIVELY via Helm values (`grafana.additionalDataSources` in `helm-values/prometheus-stack.yaml`); never apply datasource ConfigMaps (see INFRA_STABILITY_GUIDE.md)
 
 ### Loki + Promtail
 
