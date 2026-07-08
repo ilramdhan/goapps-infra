@@ -8,4 +8,4 @@ patches:
 - path: patches/env-iam-storage.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
-  newTag: 3f2bb19
+  newTag: e3cd21b
