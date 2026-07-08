@@ -123,6 +123,15 @@ kubectl top pod <pod> -n <namespace>         # Resource usage
 kubectl exec -it postgres-0 -n database -- psql -U postgres -d goapps
 kubectl exec -it postgres-0 -n database -- psql -U postgres -c "SELECT count(*) FROM pg_stat_activity"
 
+# Database access per-environment (single shared postgres-0, not per-service):
+# | Env        | Pod          | User      | Database | IAM tables schema |
+# | Local      | -            | iam/finance | iam_db/finance_db | public |
+# | Staging    | postgres-0   | stgapps   | goapps   | public |
+# | Production | postgres-0   | (check secret) | (check secret) | public |
+kubectl exec -it postgres-0 -n database -- psql -U stgapps -d goapps -c "SELECT * FROM public.mst_user LIMIT 5;"
+kubectl exec -it postgres-0 -n database -- psql -U stgapps -d goapps -c "\dn"   # list schemas
+kubectl exec -it deploy/iam-service -n goapps-staging -- /app/migrate -path /app/migrations -database "$DATABASE_URL" up
+
 # Rollback
 kubectl rollout undo deployment/<name> -n <namespace>
 kubectl rollout history deployment/<name> -n <namespace>
@@ -459,7 +468,7 @@ DATABASE_HOST: "postgres.database.svc.cluster.local"
 - **Type**: Deployment (non-StatefulSet)
 - **Storage**: emptyDir (data lost on restart -- cache only)
 - **Access**: `redis.database.svc.cluster.local:6379`
-- **DB 0**: Application cache
+- **DB 0**: Application cache (including email verification OTPs)
 - **DB 1**: Token blacklist (shared between IAM and other services for JWT invalidation)
 
 ### RabbitMQ 3
@@ -1062,3 +1071,10 @@ These are hard-won lessons from production operations:
 | Redis emptyDir | Data is lost on pod restart. Do not store anything that cannot be regenerated. |
 | NetworkPolicies | Required by RULES.md but not yet implemented -- known gap. |
 | Backup CronJob env | Currently hardcoded to "production" label even in staging -- known bug. |
+| Pod Disruption Budgets | None defined -- needed for StatefulSets (PostgreSQL, RabbitMQ, MinIO) to survive node drains safely. |
+| Resource Quotas | No per-namespace ResourceQuota resources -- risk of one namespace exhausting cluster resources. |
+| PostgreSQL ServiceMonitor | Exporter is deployed but no ServiceMonitor resource wires it into Prometheus scraping. |
+| App service accounts | Workloads run under the default K8s service account -- no dedicated RBAC service accounts per app. |
+| Documentation path inconsistencies | Backup paths documented inconsistently, e.g. `/staging-goapps-backup` vs `/mnt/staging-goapps-backup`. |
+| RabbitMQ clustering | Single pod, no clustering -- SPOF for the message queue. |
+| Jaeger storage | In-memory only (10K trace cap) -- consider persistent storage for production. |
