@@ -1,0 +1,73 @@
+# Finance MB Validate Backfill Job
+# Drives the VALIDATE workflow on seeded DRAFT MB heads from the Oracle
+# 202606 composition backfill. Idempotent — safe to run multiple times
+# (skips heads already validated with cost_product_id ≠ 0).
+#
+# Run AFTER migrate (000459-463 must be applied first).
+#
+# USAGE (via helper script — recommended):
+#   ./scripts/finance-setup.sh <namespace> backfill
+#   Example: ./scripts/finance-setup.sh goapps-staging backfill
+#
+# MANUAL USAGE:
+#   kubectl delete job finance-backfill-mb-validate -n <namespace> --ignore-not-found
+#   cat backfill-mb-validate-job.yaml | sed "s|IMAGE_TAG|<tag>|" | kubectl apply -n <namespace> -f -
+#   kubectl logs -f job/finance-backfill-mb-validate -n <namespace>
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: finance-backfill-mb-validate
+  labels:
+    app: finance-service
+    component: backfill
+    app.kubernetes.io/name: finance-service
+    app.kubernetes.io/component: backfill
+    app.kubernetes.io/part-of: goapps
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: finance-service
+        component: backfill
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      restartPolicy: Never
+      containers:
+        - name: backfill-mb-validate
+          image: ghcr.io/mutugading/finance-service:IMAGE_TAG
+          imagePullPolicy: Always
+          command: ["/app/backfill-mb-validate"]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DATABASE_HOST
+              value: "postgres.database.svc.cluster.local"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: "goapps"
+            - name: DATABASE_SSLMODE
+              value: "disable"
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
