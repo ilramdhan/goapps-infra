@@ -1,4 +1,5 @@
-# Production: Higher resource limits for costing workload (12K products × 500 params)
+# Production: Higher resource limits for costing workload (12K products × 500 params).
+# Selling calc loads heavy SellingSnapshots JSON per chunk — needs ≥2Gi to avoid OOM.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,8 +11,8 @@ spec:
         - name: finance-service
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "200m"
+              memory: "512Mi"
+              cpu: "250m"
             limits:
-              memory: "1Gi"
+              memory: "2Gi"
               cpu: "1000m"
