@@ -10,10 +10,11 @@
 #   ./scripts/finance-setup.sh goapps-production        # migrate + seed
 #   ./scripts/finance-setup.sh goapps-staging migrate   # migrate only
 #   ./scripts/finance-setup.sh goapps-production seed   # seed only
+#   ./scripts/finance-setup.sh goapps-staging backfill  # backfill-mb-validate (after migrate)
 
 set -euo pipefail
 
-NAMESPACE="${1:?Usage: $0 <namespace> [migrate|seed]}"
+NAMESPACE="${1:?Usage: $0 <namespace> [migrate|seed|backfill]}"
 ACTION="${2:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_DIR="$SCRIPT_DIR/../services/finance-service/base"
@@ -48,7 +49,8 @@ run_job() {
 
   echo "==> Logs for $job_name:"
   echo "---"
-  kubectl wait --for=condition=complete job/"$job_name" -n "$NAMESPACE" --timeout=120s &
+  local timeout="${3:-120s}"
+  kubectl wait --for=condition=complete job/"$job_name" -n "$NAMESPACE" --timeout="$timeout" &
   local wait_pid=$!
   sleep 2
   kubectl logs -f "job/$job_name" -n "$NAMESPACE" 2>/dev/null || true
@@ -74,13 +76,16 @@ case "$ACTION" in
   seed)
     run_job "finance-seed" "$BASE_DIR/seed-job.yaml"
     ;;
+  backfill)
+    run_job "finance-backfill-mb-validate" "$BASE_DIR/backfill-mb-validate-job.yaml" "600s"
+    ;;
   all)
     run_job "finance-migrate" "$BASE_DIR/migrate-job.yaml"
     run_job "finance-seed" "$BASE_DIR/seed-job.yaml"
     ;;
   *)
     echo "Unknown action: $ACTION"
-    echo "Usage: $0 <namespace> [migrate|seed]"
+    echo "Usage: $0 <namespace> [migrate|seed|backfill]"
     exit 1
     ;;
 esac
