@@ -151,6 +151,13 @@ spec:
                 secretKeyRef:
                   name: goapps-internal-token
                   key: INTERNAL_SERVICE_TOKEN
+            # Chat encryption master key (AES-256-GCM).
+            - name: CHAT_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-chat-secret
+                  key: CHAT_MASTER_KEY
+                  optional: true
           resources:
             requests:
               memory: "128Mi"
