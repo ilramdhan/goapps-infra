@@ -24,6 +24,8 @@ ALL_TARGETS=(
   "services/iam-service/overlays/production"
   "services/frontend/overlays/staging"
   "services/frontend/overlays/production"
+  "services/ppc-service/overlays/staging"
+  "services/ppc-service/overlays/production"
 )
 
 RED='\033[0;31m'

@@ -1,0 +1,18 @@
+# Production: Higher resource ceiling for ETL aggregation + in-memory master
+# caches (finance CPM/route/parameter lookups cached with TTL).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ppc-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: ppc-service
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

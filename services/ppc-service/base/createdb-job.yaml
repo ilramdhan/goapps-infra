@@ -1,0 +1,73 @@
+# PPC Create-Database Job
+# PPC owns a dedicated `ppc_db` database on the shared postgres cluster
+# (design D1 / §9 — NOT a schema inside another service's DB). The postgres
+# StatefulSet's docker-entrypoint-initdb.d only runs on a fresh data dir, so on
+# an already-initialised cluster ppc_db must be created explicitly. This Job is
+# idempotent (skips if the database already exists) and MUST run before
+# ppc-migrate.
+#
+# USAGE (manual):
+#   kubectl delete job ppc-createdb -n <namespace> --ignore-not-found
+#   kubectl apply -f createdb-job.yaml -n <namespace>
+#   kubectl logs -f job/ppc-createdb -n <namespace>
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ppc-createdb
+  labels:
+    app: ppc-service
+    component: createdb
+    app.kubernetes.io/name: ppc-service
+    app.kubernetes.io/component: createdb
+    app.kubernetes.io/part-of: goapps
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: ppc-service
+        component: createdb
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: ppc-createdb
+          image: postgres:18-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Ensuring database ppc_db exists..."
+              if psql -tAc "SELECT 1 FROM pg_database WHERE datname='ppc_db'" | grep -q 1; then
+                echo "ppc_db already exists — nothing to do."
+              else
+                createdb ppc_db
+                echo "ppc_db created."
+              fi
+          env:
+            - name: PGHOST
+              value: "postgres.database.svc.cluster.local"
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: "postgres"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"

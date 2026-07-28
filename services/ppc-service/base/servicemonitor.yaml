@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ppc-service
+  labels:
+    app: ppc-service
+spec:
+  selector:
+    matchLabels:
+      app: ppc-service
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
