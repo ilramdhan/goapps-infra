@@ -1,0 +1,8 @@
+# Staging: Single replica (also required — in-process ETL/sync tickers are not
+# leader-elected; >1 replica duplicates ETL work).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ppc-service
+spec:
+  replicas: 1

@@ -1,0 +1,12 @@
+# Production: still a SINGLE replica. Unlike finance, PPC cannot run >1 replica
+# in Phase-1 because its ETL / machine-sync / auto-approve / efficiency-snapshot
+# tickers are in-process and not leader-elected — a second replica would
+# duplicate ETL pulls and race on watermark/state writes. Availability trade-off
+# is accepted for Phase-1; revisit once tickers move to a leader-elected worker
+# (then also raise the base HPA maxReplicas).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ppc-service
+spec:
+  replicas: 1

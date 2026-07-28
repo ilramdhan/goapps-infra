@@ -1,0 +1,22 @@
+# Finance + IAM gRPC client targets. In-cluster service DNS is identical across
+# environments (namespace-local Services), so these mirror the base values;
+# the patch exists as the per-environment override point should staging ever
+# need to point at a different finance/IAM endpoint.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ppc-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: ppc-service
+          env:
+            - name: FINANCE_GRPC_HOST
+              value: "finance-service"
+            - name: FINANCE_GRPC_PORT
+              value: "50051"
+            - name: IAM_GRPC_HOST
+              value: "iam-service"
+            - name: IAM_GRPC_PORT
+              value: "50052"

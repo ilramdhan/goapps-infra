@@ -1,0 +1,134 @@
+# PPC (Production Planning & Control) Service Deployment
+# Mirrors finance-service/base/deployment.yaml. PPC owns its own database
+# (ppc_db) on the shared postgres cluster and reads finance/IAM masters via
+# internal gRPC (x-internal-token). No Redis/RabbitMQ/MinIO dependency.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ppc-service
+  labels:
+    app: ppc-service
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0       # Never kill old pod before new one is ready
+  selector:
+    matchLabels:
+      app: ppc-service
+  template:
+    metadata:
+      labels:
+        app: ppc-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/metrics"
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: ppc-service
+          image: ghcr.io/mutugading/ppc-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 50053
+              name: grpc
+            - containerPort: 8082
+              name: http          # HTTP gateway + /metrics + /healthz
+          env:
+            - name: APP_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Database config — PPC owns a dedicated `ppc_db` database on the
+            # shared postgres cluster (connects DIRECTLY to postgres, matching
+            # finance-service). Env keys use the PPC_ prefix (viper bindEnvVars).
+            - name: PPC_DATABASE_HOST
+              value: "postgres.database.svc.cluster.local"
+            - name: PPC_DATABASE_PORT
+              value: "5432"
+            - name: PPC_DATABASE_NAME
+              value: "ppc_db"
+            - name: PPC_DATABASE_SSLMODE
+              value: "disable"
+            - name: PPC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: PPC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            # JWT (shared access secret with IAM for user-token validation)
+            - name: JWT_ACCESS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-auth-secret
+                  key: JWT_ACCESS_SECRET
+            # Service-to-service secret validated by finance/IAM on internal RPCs.
+            # PPC sends PPC_INTERNAL_TOKEN as x-internal-token; it must equal the
+            # value finance/IAM expect. Also fed as PPC_JWT_SERVICE_SECRET.
+            - name: PPC_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ppc-internal-token
+                  key: PPC_INTERNAL_TOKEN
+            - name: PPC_JWT_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ppc-internal-token
+                  key: PPC_INTERNAL_TOKEN
+            # CORS (overridden per environment via kustomize env-cors patch)
+            - name: CORS_ALLOWED_ORIGINS
+              value: "https://app.goapps.local"
+            # Finance gRPC client — PPC reads cost masters (CPM/route/grade/
+            # parameter) via CostMasterLookupService.
+            - name: FINANCE_GRPC_HOST
+              value: "finance-service"
+            - name: FINANCE_GRPC_PORT
+              value: "50051"
+            # IAM gRPC client — notification fan-out on WO/approval lifecycle.
+            - name: IAM_GRPC_HOST
+              value: "iam-service"
+            - name: IAM_GRPC_PORT
+              value: "50052"
+            # Tracing
+            - name: TRACING_ENABLED
+              value: "true"
+            - name: JAEGER_ENDPOINT
+              value: "jaeger-collector.observability.svc.cluster.local:4317"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          # PPC exposes both a gRPC health service and an HTTP /healthz endpoint.
+          # Probes use HTTP /healthz on the gateway port (8082) per plan-06.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12    # 5 + (5*12) = 65s max startup time
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            periodSeconds: 5
+            failureThreshold: 3
