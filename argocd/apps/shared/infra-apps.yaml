@@ -33,7 +33,7 @@ spec:
 ---
 # ArgoCD Application - Observability (Jaeger all-in-one for distributed tracing)
 # Single shared instance — namespace `observability` is created on first sync.
-# Application services (iam-service, finance-service, finance-worker) export
+# Application services (iam-service, finance-service, finance-worker, ppc-service) export
 # OTLP traces to jaeger-collector.observability.svc.cluster.local:4317.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
