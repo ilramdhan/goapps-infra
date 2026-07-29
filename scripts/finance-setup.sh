@@ -36,6 +36,7 @@ echo ""
 run_job() {
   local job_name="$1"
   local job_file="$2"
+  local component="$3"
 
   echo "==> Deleting old $job_name job (if exists)..."
   kubectl delete job "$job_name" -n "$NAMESPACE" --ignore-not-found
@@ -44,12 +45,12 @@ run_job() {
   sed "s|IMAGE_TAG|$IMAGE_TAG|" "$job_file" | kubectl apply -n "$NAMESPACE" -f -
 
   echo "==> Waiting for $job_name to start..."
-  kubectl wait --for=condition=Ready pod -l "component=${job_name#finance-}" \
+  kubectl wait --for=condition=Ready pod -l "component=$component" \
     -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
 
   echo "==> Logs for $job_name:"
   echo "---"
-  local timeout="${3:-120s}"
+  local timeout="${4:-120s}"
   kubectl wait --for=condition=complete job/"$job_name" -n "$NAMESPACE" --timeout="$timeout" &
   local wait_pid=$!
   sleep 2
@@ -71,17 +72,17 @@ run_job() {
 
 case "$ACTION" in
   migrate)
-    run_job "finance-migrate" "$BASE_DIR/migrate-job.yaml"
+    run_job "finance-migrate" "$BASE_DIR/migrate-job.yaml" "migration"
     ;;
   seed)
-    run_job "finance-seed" "$BASE_DIR/seed-job.yaml"
+    run_job "finance-seed" "$BASE_DIR/seed-job.yaml" "seeder"
     ;;
   backfill)
-    run_job "finance-backfill-mb-validate" "$BASE_DIR/backfill-mb-validate-job.yaml" "600s"
+    run_job "finance-backfill-mb-validate" "$BASE_DIR/backfill-mb-validate-job.yaml" "backfill" "600s"
     ;;
   all)
-    run_job "finance-migrate" "$BASE_DIR/migrate-job.yaml"
-    run_job "finance-seed" "$BASE_DIR/seed-job.yaml"
+    run_job "finance-migrate" "$BASE_DIR/migrate-job.yaml" "migration"
+    run_job "finance-seed" "$BASE_DIR/seed-job.yaml" "seeder"
     ;;
   *)
     echo "Unknown action: $ACTION"
