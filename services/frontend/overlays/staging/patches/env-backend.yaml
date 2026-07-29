@@ -20,3 +20,15 @@ spec:
               value: "ppc-service"
             - name: PPC_GRPC_PORT
               value: "50053"
+            # Internal service secret for the PPC BFF routes that proxy finance's
+            # CostMasterLookupService (/api/v1/ppc/products, .../products/route-lookup,
+            # /api/v1/ppc/parameters). createInternalMetadataFromRequest sends this as
+            # the x-service-secret gRPC header; finance's auth interceptor compares it
+            # against its own JWT_SERVICE_SECRET, which is fed from this same
+            # secret+key. Without it the header is omitted and finance rejects the
+            # lookup with Unauthenticated once a non-empty service secret is set.
+            - name: FINANCE_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: goapps-internal-token
+                  key: INTERNAL_SERVICE_TOKEN

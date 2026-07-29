@@ -56,6 +56,44 @@ data:
       echo "[$(date)] Uploaded to Cloud S3"
     fi
     
+    # --- ppc_db (separate database on the same StatefulSet, locked decision D1) ---
+    # Non-fatal by design: the goapps dump above has already been created and
+    # uploaded, and `set -e` is active, so an unguarded dump failure here would
+    # abort the script before the retention cleanup below.
+    PPC_BACKUP_FILE="/backup/${ENVIRONMENT}_ppc_db_${TIMESTAMP}.sql.gz"
+    echo "[$(date)] Starting ppc_db backup..."
+    if ( set -o pipefail
+         PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+           -h postgres-0.postgres.database.svc.cluster.local \
+           -U postgres \
+           -d ppc_db \
+           --format=plain \
+           --no-owner \
+           --no-acl | gzip > "${PPC_BACKUP_FILE}" ); then
+      echo "[$(date)] ppc_db backup created: ${PPC_BACKUP_FILE}"
+      echo "[$(date)] Size: $(du -h ${PPC_BACKUP_FILE} | cut -f1)"
+
+      # Upload ppc_db dump to MinIO (local)
+      if [ -n "${MINIO_ENDPOINT}" ]; then
+        if [ "${MINIO_USE_SSL}" = "true" ]; then
+          mc cp "${PPC_BACKUP_FILE}" minio/postgres-backups/ --insecure \
+            || echo "[$(date)] WARNING: ppc_db MinIO upload failed" >&2
+        else
+          mc cp "${PPC_BACKUP_FILE}" minio/postgres-backups/ \
+            || echo "[$(date)] WARNING: ppc_db MinIO upload failed" >&2
+        fi
+      fi
+
+      # Upload ppc_db dump to Cloud S3 (Backblaze B2)
+      if [ -n "${S3_ENDPOINT}" ]; then
+        mc cp "${PPC_BACKUP_FILE}" cloud/${S3_BUCKET}/${ENVIRONMENT}/ \
+          || echo "[$(date)] WARNING: ppc_db Cloud S3 upload failed" >&2
+      fi
+    else
+      echo "[$(date)] WARNING: ppc_db backup failed (goapps backup already succeeded)" >&2
+      rm -f "${PPC_BACKUP_FILE}"
+    fi
+
     # Cleanup old local backups (keep 7 days)
     echo "[$(date)] Cleaning up old backups..."
     find /backup -name "*.sql.gz" -mtime +7 -delete

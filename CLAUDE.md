@@ -164,11 +164,29 @@ argocd app rollback <app-name>
 ./scripts/install-runner.sh         # GitHub Actions self-hosted runner
 ./scripts/finance-setup.sh          # Finance service initial setup
 ./scripts/iam-setup.sh              # IAM service initial setup
+./scripts/ppc-setup.sh              # PPC service initial setup (see below)
 ./scripts/validate-manifests.sh     # Validate all manifests
 ./scripts/fix-staging.sh            # Fix staging environment issues
 ./scripts/fix-production.sh         # Fix production environment issues
 ./scripts/reset-k3s.sh              # Uninstall K3s (DESTRUCTIVE)
 ```
+
+#### PPC setup (`ppc-setup.sh`)
+
+PPC owns a dedicated `ppc_db` database, so it needs an extra `createdb` step the other services do not:
+
+```bash
+./scripts/ppc-setup.sh <namespace> [createdb|migrate|seed|all]
+
+./scripts/ppc-setup.sh goapps-staging createdb   # create ppc_db (idempotent; NO deployment needed)
+./scripts/ppc-setup.sh goapps-staging migrate    # needs a running ppc-service (image tag read from it)
+./scripts/ppc-setup.sh goapps-staging seed       # staging/dev only
+./scripts/ppc-setup.sh goapps-staging all        # createdb + migrate + seed
+```
+
+**Production: `createdb` + `migrate` only — never `seed`.** Full procedure in `docs/runbooks/ppc-service-deployment.md`.
+
+Job `component=` labels are `createdb`, `migration`, `seeder` (not `migrate`/`seed`); `ppc-setup.sh` passes them explicitly. `iam-setup.sh` derives them from the job name and therefore matches nothing — masked by `|| true`, so it silently waits out its 60s timeout. Known, unfixed.
 
 ---
 
@@ -452,7 +470,9 @@ Key configuration (`configmap.yaml`):
 - **HPA**: Enabled
 - **VPA**: Enabled
 
-**All services MUST connect via PgBouncer, never directly to PostgreSQL.**
+**All services on the shared `goapps` database MUST connect via PgBouncer, never directly to PostgreSQL.**
+
+**Documented exception — PPC.** PgBouncer is configured with `DB_NAME: goapps` and no `[databases]` block, so it cannot front `ppc_db` at all. `ppc-service` therefore connects directly to `postgres.database.svc.cluster.local:5432` (see `services/ppc-service/base/deployment.yaml`). This is acceptable because PPC's HPA is pinned `minReplicas: 1 / maxReplicas: 1`, capping its connection count. If PPC is ever scaled past 1 replica, add a `[databases]` entry for `ppc_db` to PgBouncer first.
 
 ```yaml
 # CORRECT
@@ -502,7 +522,7 @@ Installed via Helm charts. Configuration in `base/monitoring/helm-values/`.
 
 - **Retention**: 30 days
 - **Storage**: 20Gi PVC
-- **ServiceMonitor**: Auto-discovery enabled (services with `release: prometheus` label)
+- **ServiceMonitor**: Auto-discovery enabled for **all** ServiceMonitors in **all** namespaces. `serviceMonitorSelectorNilUsesHelmValues: false` is set in `base/monitoring/helm-values/prometheus-stack.yaml`, so a `release: prometheus` label is **NOT** required (an earlier version of this doc claimed it was — it is false for this cluster).
 - **Scrape interval**: 30s default
 
 ### Grafana
@@ -523,12 +543,17 @@ Installed via Helm charts. Configuration in `base/monitoring/helm-values/`.
 
 ### Alert Rules
 
-Located in `base/monitoring/alert-rules/`:
-- `grafana-alert-rules.yaml` -- Application-level alerts
-- `postgres-alerts.yaml` -- PostgreSQL-specific alerts
-- `complete-alerts.yaml` -- Comprehensive alert set
+Located in `base/monitoring/alert-rules/`. Only these are in `kustomization.yaml`:
+- `complete-alerts.yaml` -- Comprehensive alert set (Grafana **unified-alerting** rules, keyed by `title:`, not Prometheus `alert:` rules)
+- `postgres-alerts.yaml` -- PostgreSQL-specific alerts (includes a `ppc_db` deadlock rule alongside the `goapps` one)
+- `cost-calc-alerts.yaml` -- finance-cost-worker specific
+- `grafana-alertrules-configmap.yaml` -- `deleteRules:` tombstone; do not remove, do not extend
 
-To add a new alert, create a ConfigMap with the `grafana_dashboard: "1"` label or edit the existing alert rule files.
+`grafana-alert-rules.yaml` also exists in that directory but is **not** in `kustomization.yaml` and is applied by nothing. Leave it alone.
+
+To add a new alert, create a ConfigMap with the **`grafana_alert: "1"`** label (NOT `grafana_dashboard: "1"` — that label is for dashboards) or edit the existing alert rule files.
+
+⚠️ **Additive only.** `base/monitoring/` is under no ArgoCD Application (see §9) — nothing reconciles it and nothing restores it. Never regenerate a dashboard JSON from a Grafana export; edit surgically.
 
 ### Adding a ServiceMonitor for a New Service
 
@@ -538,8 +563,8 @@ kind: ServiceMonitor
 metadata:
   name: my-service-monitor
   namespace: monitoring
-  labels:
-    release: prometheus
+  # No `release: prometheus` label needed — Prometheus selects all
+  # ServiceMonitors in all namespaces (see above).
 spec:
   selector:
     matchLabels:
@@ -563,7 +588,7 @@ spec:
 - **Deployment**: All-in-one (collector + query + UI in single pod)
 - **Protocol**: OTLP (OpenTelemetry)
 - **Collector endpoint**: `jaeger-collector.observability.svc.cluster.local:4317`
-- **Storage**: In-memory only (10,000 traces max)
+- **Storage**: In-memory only (**5000** traces max -- `MEMORY_MAX_TRACES: "5000"` in `base/observability/jaeger/deployment.yaml`)
 - **Namespace**: `observability`
 
 Services configure tracing via environment variables:
@@ -613,7 +638,10 @@ services/<service-name>/
 |---------|------|-------------|---------|
 | finance-service | 50051 | 8080 | 8090 |
 | iam-service | 50052 | 8081 | 8091 |
+| ppc-service | 50053 | 8082 | **8082 (same port, served by the HTTP gateway)** |
 | frontend | -- | 3000 | -- |
+
+**PPC is the exception to the separate-metrics-port pattern**: `/metrics` is registered on the gateway mux (`services/ppc/internal/delivery/httpdelivery/gateway.go`), so `service.yaml` declares only `grpc` + `http` and `servicemonitor.yaml` scrapes `port: http`. Adding a second ServicePort on 8082 makes the Service **unappliable** — Kubernetes enforces uniqueness on `(protocol, port)`, not on port name, and neither `kustomize build` nor `kubeconform` catches it. Only `kubectl apply --dry-run=server` does.
 
 ### Health Probes
 
@@ -660,17 +688,26 @@ Located in `argocd/apps/`:
 
 | Application | Path | Sync Policy |
 |-------------|------|-------------|
-| `infra-apps` (shared) | `argocd/apps/shared/` | Covers database, monitoring, jaeger, image-updater |
+| `infra-database` (in `argocd/apps/shared/infra-apps.yaml`) | `base/database` | Auto |
+| `infra-observability` (in `argocd/apps/shared/infra-apps.yaml`) | `base/observability/jaeger` | Auto |
 | `finance-service-staging` | `services/finance-service/overlays/staging` | Auto (prune + selfHeal) |
 | `iam-service-staging` | `services/iam-service/overlays/staging` | Auto (prune + selfHeal) |
+| `ppc-service-staging` | `services/ppc-service/overlays/staging` | Auto (prune + selfHeal) |
 | `frontend-staging` | `services/frontend/overlays/staging` | Auto (prune + selfHeal) |
 | `finance-service-production` | `services/finance-service/overlays/production` | Manual |
 | `iam-service-production` | `services/iam-service/overlays/production` | Manual |
+| `ppc-service-production` | `services/ppc-service/overlays/production` | Manual |
 | `frontend-production` | `services/frontend/overlays/production` | Manual |
 | `infra-backup-staging` | Staging backup overlay | Auto |
 | `infra-minio-staging` | Staging MinIO overlay | Auto |
 | `infra-backup-production` | Production backup overlay | Manual |
 | `infra-minio-production` | Production MinIO overlay | Manual |
+
+⚠️ **`argocd/apps/shared/infra-apps.yaml` declares exactly two Applications: `infra-database` and `infra-observability`.** An earlier version of this doc claimed it also covered monitoring and image-updater — it does **not**.
+
+- **`base/monitoring/` is under NO ArgoCD Application.** It is applied **imperatively** by `scripts/install-monitoring.sh`. Nothing reconciles it, nothing restores it after a manual change, and a Grafana-side edit silently diverges from git. Treat all monitoring changes as additive and surgical.
+- The ArgoCD Image Updater is likewise installed by script (`scripts/install-image-updater.sh` / `install-argocd.sh`), not by an Application.
+- Bringing monitoring under GitOps is tracked as a **separate effort**. It must deduplicate the double-prefixed ConfigMaps that `install-monitoring.sh` generates *before* `prune` is ever enabled, or ArgoCD will delete ConfigMaps it does not own.
 
 ### ArgoCD Image Updater
 
@@ -836,7 +873,12 @@ kubectl create secret generic minio-secret -n minio \
 | `minio-secret` | `minio`, `database` | MINIO_ROOT_USER, MINIO_ROOT_PASSWORD |
 | `grafana-admin-secret` | `monitoring` | admin-user, admin-password |
 | `grafana-smtp-secret` | `monitoring` | password |
+| `goapps-internal-token` | `goapps-staging`, `goapps-production` | INTERNAL_SERVICE_TOKEN |
+| `ppc-internal-token` | `goapps-staging`, `goapps-production` | PPC_INTERNAL_TOKEN |
+| `oracle-credentials` | `goapps-staging`, `goapps-production` | ORACLE_HOST, ORACLE_PORT, ORACLE_SERVICE, ORACLE_USER, ORACLE_PASSWORD |
 | `git-creds` | `argocd` | Used by ArgoCD Image Updater for git write-back |
+
+`ppc-internal-token`'s single key `PPC_INTERNAL_TOKEN` is consumed twice by both `ppc-service` `deployment.yaml` and `seed-job.yaml` — as `PPC_INTERNAL_TOKEN` and as `PPC_JWT_SERVICE_SECRET`. Its **value must equal** the `INTERNAL_SERVICE_TOKEN` in `goapps-internal-token` in the same namespace, because finance/IAM validate the incoming token against their own. Different value per environment. See `docs/runbooks/ppc-service-deployment.md`.
 
 ### Referencing Secrets in Deployments
 
@@ -1009,6 +1051,19 @@ Edit `base/database/postgres/configmap.yaml` to add the new schema.
 
 Update `.github/workflows/sync-argocd.yml` to include the new service in the sync steps.
 
+### Step 7: Add a build workflow in `goapps-backend` -- DO NOT SKIP
+
+A new backend service also needs its own `goapps-backend/.github/workflows/<service>.yml` (model it on `iam-service.yml`), or **no image is ever built**. Everything downstream then fails silently:
+
+- No image in GHCR ->
+- ArgoCD Image Updater's `allow-tags: regexp:^[a-f0-9]{7,40}$` never matches ->
+- the overlay's `newTag` is never rewritten and still points at a nonexistent tag ->
+- `ImagePullBackOff`.
+
+Nothing in `goapps-infra` detects this: the manifests are valid, `kustomize build` passes, ArgoCD reports the Application Synced. This omission is exactly what happened to `ppc-service` (gap D-1) — manifests, overlays and ArgoCD Applications all existed for weeks with no workflow behind them.
+
+The workflow's `paths:` filter must also list every shared directory the service imports (e.g. `services/shared/**`, `pkg/**`), or a change there will not rebuild the service.
+
 ---
 
 ## 16. Emergency Procedures
@@ -1077,4 +1132,4 @@ These are hard-won lessons from production operations:
 | App service accounts | Workloads run under the default K8s service account -- no dedicated RBAC service accounts per app. |
 | Documentation path inconsistencies | Backup paths documented inconsistently, e.g. `/staging-goapps-backup` vs `/mnt/staging-goapps-backup`. |
 | RabbitMQ clustering | Single pod, no clustering -- SPOF for the message queue. |
-| Jaeger storage | In-memory only (10K trace cap) -- consider persistent storage for production. |
+| Jaeger storage | In-memory only (**5000** trace cap, `MEMORY_MAX_TRACES`) -- consider persistent storage for production. |
