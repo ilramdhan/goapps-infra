@@ -177,6 +177,46 @@ data:
               severity: warning
             isPaused: false
 
+          - uid: postgres-deadlocks-ppc
+            title: PostgreSQL Deadlocks Detected (ppc_db)
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: increase(pg_stat_database_deadlocks{datname="ppc_db"}[5m]) > 0
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 0s
+            annotations:
+              summary: PostgreSQL deadlocks detected in ppc_db
+              description: Database deadlocks have occurred in ppc_db
+            labels:
+              severity: warning
+            isPaused: false
+
           - uid: pgbouncer-down
             title: PgBouncer Down
             condition: C

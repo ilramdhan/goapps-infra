@@ -694,11 +694,16 @@
                     },
                     {
                         "selected": false,
+                        "text": "ppc-service",
+                        "value": "ppc-service"
+                    },
+                    {
+                        "selected": false,
                         "text": "frontend",
                         "value": "frontend"
                     }
                 ],
-                "query": "finance-service,iam-service,frontend",
+                "query": "finance-service,iam-service,ppc-service,frontend",
                 "queryValue": "",
                 "skipUrlSync": false,
                 "type": "custom"
