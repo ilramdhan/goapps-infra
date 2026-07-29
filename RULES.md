@@ -624,7 +624,10 @@ data:
 
 ### Adding New Alert
 
-1. Edit `base/monitoring/alert-rules/grafana-alerts.yaml`
+1. Edit an existing rule file in `base/monitoring/alert-rules/` — `complete-alerts.yaml` (general), `postgres-alerts.yaml` (database), or `cost-calc-alerts.yaml` (finance-cost-worker only). There is **no `grafana-alerts.yaml`**; earlier revisions of this doc named a file that does not exist. New ConfigMaps must carry the label `grafana_alert: "1"` and be added to `base/monitoring/alert-rules/kustomization.yaml`.
+   - `grafana-alert-rules.yaml` exists on disk but is **not** in the kustomization and is applied by nothing — do not edit it expecting an effect.
+   - `grafana-alertrules-configmap.yaml` is a `deleteRules:` tombstone — do not remove or extend it.
+   - Edits here are **additive only**: `base/monitoring/` is under no ArgoCD Application, so nothing reconciles or restores it.
 2. Follow existing alert format:
 
 ```yaml
