@@ -2,12 +2,8 @@
 # Seeds master reference data (overrun thresholds, downtime reasons, waste
 # categories, machine groups) into ppc_db. Mirrors finance-service seed-job.
 #
-# ⚠️ REQUIRES a backend change: services/ppc/Dockerfile currently builds only
-#    /app/ppc-service + /app/migrate. It must also build the seeder
-#    (seeds/main.go) into /app/ppc-seed for this Job to run — mirror the
-#    finance Dockerfile's finance-seed build stage. Until then, seeding must be
-#    done manually (`go run seeds/main.go` with PPC_DATABASE_* env pointed at
-#    the cluster DB). Tracked as an owed backend task in the STATE ledger.
+# The seeder binary is built by services/ppc/Dockerfile
+# (`go build -o /bin/ppc-seed ./seeds/main.go`, copied to /app/ppc-seed).
 #
 # ORDER: run AFTER ppc-createdb and ppc-migrate.
 #
@@ -68,6 +64,57 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
+            # Service-to-service token. The seeder's machine-sync path calls
+            # finance's internal RPCs, so it needs the same token the
+            # Deployment uses (deployment.yaml feeds both env names from this
+            # one secret key).
+            - name: PPC_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ppc-internal-token
+                  key: PPC_INTERNAL_TOKEN
+            - name: PPC_JWT_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ppc-internal-token
+                  key: PPC_INTERNAL_TOKEN
+            # Finance gRPC target. Without these the seeder's finance client
+            # falls back to the localhost:50051 config default and the machine
+            # sync silently degrades to a no-op.
+            - name: FINANCE_GRPC_HOST
+              value: "finance-service"
+            - name: FINANCE_GRPC_PORT
+              value: "50051"
+            # Oracle — the machine sync derives machine_area from Oracle
+            # TXTMACH, so a finance-only sync inserts nothing. Same
+            # oracle-credentials secret keys the Deployment uses via the
+            # overlays' env-oracle patch (this Job is not in kustomization.yaml,
+            # so it cannot inherit that patch and must carry them inline).
+            - name: ORACLE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_HOST
+            - name: ORACLE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_PORT
+            - name: ORACLE_SERVICE
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_SERVICE
+            - name: ORACLE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_USER
+            - name: ORACLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: ORACLE_PASSWORD
           resources:
             requests:
               memory: "64Mi"
