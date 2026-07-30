@@ -10,10 +10,10 @@ spec:
     - name: grpc
       port: 50053
       targetPort: 50053
-    # /metrics is served by the HTTP gateway on this same port (unlike iam,
-    # which has a separate 8091 metrics port), so there is no separate
-    # `metrics` ServicePort — a second entry on 8082 would make the Service
-    # unappliable (Kubernetes enforces uniqueness on protocol+port, not name).
+    # /metrics is served by the HTTP gateway on this same port (as for finance
+    # and iam), so there is no separate `metrics` ServicePort — a second entry
+    # on 8082 would make the Service unappliable (Kubernetes enforces
+    # uniqueness on protocol+port, not name).
     - name: http
       port: 8082
       targetPort: 8082

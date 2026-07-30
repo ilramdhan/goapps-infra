@@ -23,7 +23,7 @@ spec:
         app: finance-service
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8090"
+        prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       imagePullSecrets:
@@ -36,9 +36,7 @@ spec:
             - containerPort: 50051
               name: grpc
             - containerPort: 8080
-              name: http
-            - containerPort: 8090
-              name: metrics
+              name: http          # HTTP gateway + /metrics
           env:
             - name: APP_ENV
               valueFrom:

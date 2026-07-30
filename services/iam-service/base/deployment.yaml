@@ -23,7 +23,7 @@ spec:
         app: iam-service
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8091"
+        prometheus.io/port: "8081"
         prometheus.io/path: "/metrics"
     spec:
       imagePullSecrets:
@@ -36,9 +36,7 @@ spec:
             - containerPort: 50052
               name: grpc
             - containerPort: 8081
-              name: http
-            - containerPort: 8091
-              name: metrics
+              name: http          # HTTP gateway + /metrics
           env:
             - name: APP_ENV
               valueFrom:
