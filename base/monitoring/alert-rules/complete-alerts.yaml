@@ -445,7 +445,11 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: kube_horizontalpodautoscaler_status_current_replicas == kube_horizontalpodautoscaler_spec_max_replicas
+                  # Exclude HPAs pinned at min == max (e.g. ppc-service-hpa 1/1,
+                  # pinned because its in-process tickers are not leader-elected).
+                  # Those are permanently "at max" by design and would alert
+                  # forever.
+                  expr: kube_horizontalpodautoscaler_status_current_replicas == kube_horizontalpodautoscaler_spec_max_replicas and kube_horizontalpodautoscaler_spec_max_replicas > kube_horizontalpodautoscaler_spec_min_replicas
                   refId: A
               - refId: B
                 datasourceUid: __expr__

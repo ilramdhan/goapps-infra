@@ -195,9 +195,13 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  # finance_cost_db_pool_in_use is reported as a 0..1 utilization
-                  # ratio; alert at 85% of the pool.
-                  expr: max(finance_cost_db_pool_in_use) > 0.85
+                  # finance_cost_db_pool_in_use is an ABSOLUTE connection count,
+                  # not a ratio. Divide by the exported pool capacity so the
+                  # threshold stays correct when max_open_conns is retuned
+                  # (finance 25 / orchestrator 8 / worker 6, per config.yaml).
+                  # Guard against a 0 denominator when a pod has published
+                  # in_use but not yet max_open.
+                  expr: max(finance_cost_db_pool_in_use / (finance_cost_db_pool_max_open > 0)) > 0.85
                   refId: A
               - refId: C
                 relativeTimeRange:
