@@ -124,12 +124,15 @@ kubectl exec -it postgres-0 -n database -- psql -U postgres -d goapps
 kubectl exec -it postgres-0 -n database -- psql -U postgres -c "SELECT count(*) FROM pg_stat_activity"
 
 # Database access per-environment (single shared postgres-0, not per-service):
+# `goapps` and `ppc_db` are two DATABASES inside the SAME postgres instance --
+# not two servers. One tunnel per environment reaches both; only `-d` changes.
 # | Env        | Pod          | User      | Database | IAM tables schema |
 # | Local      | -            | iam/finance | iam_db/finance_db | public |
-# | Staging    | postgres-0   | stgapps   | goapps   | public |
-# | Production | postgres-0   | (check secret) | (check secret) | public |
+# | Staging    | postgres-0   | stgapps   | goapps / ppc_db | public |
+# | Production | postgres-0   | (check secret) | goapps / ppc_db | public |
 kubectl exec -it postgres-0 -n database -- psql -U stgapps -d goapps -c "SELECT * FROM public.mst_user LIMIT 5;"
 kubectl exec -it postgres-0 -n database -- psql -U stgapps -d goapps -c "\dn"   # list schemas
+kubectl exec -it postgres-0 -n database -- psql -U stgapps -d ppc_db -c "\dt"   # PPC tables
 kubectl exec -it deploy/iam-service -n goapps-staging -- /app/migrate -path /app/migrations -database "$DATABASE_URL" up
 
 # Rollback
@@ -396,6 +399,9 @@ goapps-infra/
 │   ├── LOCAL_VALIDATION_GUIDE.md
 │   ├── vps-reset-guide.md
 │   └── runbooks/
+│       ├── ppc-service-deployment.md      # New-service deployment, end to end
+│       ├── database-port-forward.md       # Tunnel goapps / ppc_db to localhost
+│       └── monitoring-alerting-activation-2026-07.md
 │
 └── .github/
     ├── workflows/
@@ -578,6 +584,66 @@ spec:
       interval: 30s
       path: /metrics
 ```
+
+Name the endpoint after an **existing** ServicePort. A service whose gateway serves `/metrics` on the same port as its API (ppc-service: both on 8082) has **no** separate `metrics` port — Kubernetes enforces ServicePort uniqueness on `(protocol, port)`, not on name, so a second 8082 entry makes the whole Service unappliable. Use `port: http` there.
+
+### `base/monitoring/` IS OUTSIDE GITOPS -- apply it by hand, on BOTH hosts
+
+**No ArgoCD Application manages `base/monitoring`.** `argocd/apps/shared/infra-apps.yaml` covers only `base/database` and `base/observability/jaeger`; no workflow applies the directory either:
+
+```bash
+grep -rn "base/monitoring" argocd/     # returns nothing
+```
+
+So dashboards and alert rules reach a cluster **only** via a manual `kubectl apply`, and "sync the Application" is not a fix — there is no Application to sync. What runs in the cluster is a snapshot of whoever last applied it, which is why `ppc-service` was missing from the dashboard filter for weeks while being correct in git.
+
+Staging and production are **separate clusters** — run the apply on both hosts:
+
+```bash
+kubectl apply -f base/monitoring/dashboards/grafana-dashboard-go-apps-configmap.yaml
+```
+
+The file is environment-agnostic (there is no production overlay, and `namespace: monitoring` is hardcoded inside it). The dashboard's own `namespace` variable carries **both** `goapps-staging` and `goapps-production` with staging pre-selected, so the same ConfigMap ships to both clusters and you switch environment from the dropdown *inside* Grafana — production's Grafana defaulting to `goapps-staging` is expected, not a mis-apply.
+
+Two consequences worth internalizing:
+
+- **No `selfHeal`.** An in-cluster edit is never reverted from git, and a git change is never auto-applied. Permanent drift risk — but also why the Grafana alert config has never been silently overwritten by a sync.
+- Applying a **single dashboard ConfigMap** is safe (one resource, one data key, in-place update, no `--prune`, not `-k`). What is *not* safe, and must never be done casually, is `kubectl apply -k base/monitoring/alert-rules/`, any `delete`, or regenerating these files from a Grafana export.
+
+### Dashboard service filter is a HARDCODED list -- add every new service by hand
+
+The `service` template variable in `base/monitoring/dashboards/grafana-dashboard-go-apps.json` is **`type: custom`** — a literal comma-separated list, not a Prometheus `label_values()` query:
+
+```json
+"query": "finance-service,iam-service,ppc-service,frontend",
+```
+
+**There is no auto-discovery.** A new service emitting perfectly good metrics simply never appears in the dropdown until its name is added to that string. Edit **both** the `.json` and the `-configmap.yaml` beside it — Grafana's sidecar reads the ConfigMap; the loose `.json` is only the source copy, and they drift silently.
+
+If a service is present in the ConfigMap but still missing from the dropdown, Grafana has stale state rather than stale config:
+
+```bash
+kubectl get cm grafana-dashboard-go-apps -n monitoring \
+  -o jsonpath='{.data.go-apps-microservices\.json}' | grep -o 'finance-service,iam-service[^"]*'
+```
+
+Missing there ⇒ sync the `infra-apps` Application. Present there ⇒ `kubectl rollout restart deploy/prometheus-grafana -n monitoring`.
+
+### Alerting is namespace-scoped, NOT per-service -- new services are covered automatically
+
+`base/monitoring/alert-rules/complete-alerts.yaml` selects on namespace, never on service name:
+
+```
+KubePodCrashLooping   kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff", namespace!~"database"}
+KubePodNotReady       kube_pod_status_phase{phase="Pending", namespace=~"goapps-staging|goapps-production|..."}
+KubeDeploymentReplicasMismatch, PodOOMKilled, PodRestartingTooOften, HPAMaxedOut, ...
+```
+
+Any Deployment in `goapps-staging` / `goapps-production` inherits all of them the moment it exists. **Silence after a rollout means the rollout succeeded** — these rules fire only on `CrashLoopBackOff`, `Pending`, unavailable replicas, or OOMKills. The email flood people associate with "a new image went out" is the signature of a *failing* rollout, not a routine notification. Do not read a quiet inbox as missing coverage.
+
+Only genuinely service-specific alerts need authoring (e.g. `ppc_db` size/connection/backup rules live in `postgres-alerts.yaml`).
+
+⚠️ **`grafana-alert-rules.yaml` is NOT in `alert-rules/kustomization.yaml`** — only `complete-alerts`, `grafana-alertrules-configmap`, `postgres-alerts`, `cost-calc-alerts` are applied. It appears to be a superseded copy of `grafana-alertrules-configmap.yaml`. Left in place deliberately: **never delete, rename, regenerate, or reformat Grafana alert config** — this configuration was lost once before and had to be rebuilt from scratch. Never add a uid to `deleteRules:`.
 
 ---
 
@@ -1035,13 +1101,15 @@ Staging overlay (`overlays/staging/kustomization.yaml`):
 
 Production overlay: same structure with higher resources, 3 replicas, production domain.
 
-### Step 4: Create ArgoCD Application
+### Step 4: Create ArgoCD Application -- AND APPLY IT BY HAND (see Step 8)
 
 Add `argocd/apps/staging/<service>.yaml` and `argocd/apps/production/<service>.yaml`.
 
 Staging gets `syncPolicy.automated` with prune + selfHeal. Production gets no automated sync (manual).
 
 Include ArgoCD Image Updater annotations for automatic image tag updates.
+
+Committing the file is **not** enough to create the Application -- see Step 8.
 
 ### Step 5: Add Database Schema (If Needed)
 
@@ -1063,6 +1131,67 @@ A new backend service also needs its own `goapps-backend/.github/workflows/<serv
 Nothing in `goapps-infra` detects this: the manifests are valid, `kustomize build` passes, ArgoCD reports the Application Synced. This omission is exactly what happened to `ppc-service` (gap D-1) — manifests, overlays and ArgoCD Applications all existed for weeks with no workflow behind them.
 
 The workflow's `paths:` filter must also list every shared directory the service imports (e.g. `services/shared/**`, `pkg/**`), or a change there will not rebuild the service.
+
+### Step 8: Apply the ArgoCD Application manually -- ONE-TIME, DO NOT SKIP
+
+**Nothing in this repo applies `argocd/apps/**` for you.** There is no app-of-apps root Application, and `sync-argocd.yml` only syncs Applications that *already exist* in the cluster. A new service's Application CR sits in git -- valid, reviewed, merged -- and is never created:
+
+```
+$ argocd app get ppc-service-staging
+applications.argoproj.io "ppc-service-staging" not found
+```
+
+```bash
+kubectl apply -f argocd/apps/staging/<service>.yaml
+kubectl apply -f argocd/apps/production/<service>.yaml
+```
+
+A `metadata.finalizers` warning on apply is expected and harmless.
+
+This bit `ppc-service` on 2026-07-29 in **both** environments. It is the same class of failure as Step 7: a correct artifact in git that nothing ever applies to the cluster.
+
+### Step 9: Migrate IAM too -- the menu and permissions live in a DIFFERENT database
+
+A service's own `<service>-setup.sh migrate` targets its own database and its own version table (e.g. `ppc_db` / `schema_migrations_ppc`). But the sidebar **menu entries, permissions and roles** are seeded by **IAM** migrations against the `goapps` database and `schema_migrations_iam` -- a different database *and* a different version table.
+
+Skip this and the new pages load fine by direct URL while the sidebar stays permanently empty. That is exactly what happened to `ppc-service` on 2026-07-29 in both environments (IAM migrations `000079`-`000081`).
+
+```bash
+./scripts/iam-setup.sh goapps-staging migrate
+
+kubectl exec -it postgres-0 -n database -- psql -U stgapps -d goapps \
+  -c "SELECT version, dirty FROM schema_migrations_iam;"   # verify by VERSION, not by script output
+```
+
+Verify by version number: `iam-setup.sh`'s `kubectl wait` derives its `component=` label from the job name, matches no pod, and burns its timeout masked by `|| true` -- the migration still runs, but the script's output tells you nothing.
+
+If a seed migration widens a CHECK constraint via `DROP CONSTRAINT` + `ADD CONSTRAINT` (e.g. `chk_permission_action` to admit a new action verb), compare production's live definition against staging's **before** running it there -- a drifted production constraint would be replaced wholesale:
+
+```bash
+kubectl exec -it postgres-0 -n database -- psql -U <prod-user> -d <prod-db> -c \
+  "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'chk_permission_action';"
+```
+
+Users with an existing session must log out and back in -- the sidebar comes from `useMenuTree()` and permissions resolve at session start.
+
+### Step 10: Verify against the ORG repo, not your fork
+
+Every ArgoCD Application tracks `repoURL: https://github.com/mutugading/goapps-infra.git`. If your local `origin` is a personal fork, **verifying `origin/main` proves nothing about what ArgoCD sees.** A merged-to-fork-only fix leaves the cluster reading the old, possibly broken manifest. Query the org directly:
+
+```bash
+# quote the URL -- an unquoted `?` is glob-expanded by zsh and gh fails with
+# "no matches found", which reads as a false ABSENT
+gh api "repos/mutugading/goapps-infra/contents/services/<service>/base/service.yaml?ref=main" \
+  --jq '.content' | base64 -d
+```
+
+For files that ArgoCD Image Updater writes back to (`*/kustomization.yaml` `newTag`), do **not** trust `git diff a..b` -- the direction is easy to misread as an image rollback. Compare per side instead:
+
+```bash
+git show origin/main:services/<service>/overlays/staging/kustomization.yaml | grep newTag
+git show HEAD:services/<service>/overlays/staging/kustomization.yaml | grep newTag
+git log --oneline --date=short --format='%h %ad %s' -3 origin/main -- <path>   # newest wins
+```
 
 ---
 
