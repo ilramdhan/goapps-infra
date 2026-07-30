@@ -56,9 +56,28 @@ kubectl get secret oracle-credentials -n goapps-staging -o jsonpath='{.data}' | 
 
 **`ppc_db` needs no new Postgres secret** — `createdb-job.yaml`, `migrate-job.yaml`, `seed-job.yaml` and `deployment.yaml` all read `POSTGRES_USER` / `POSTGRES_PASSWORD` from the existing `postgres-secret`.
 
-### Step 2 — `ppc-internal-token` — **DONE, no action needed**
+### Step 2 — `ppc-internal-token` — **verify the KEY NAME, do not assume**
 
-The user has already created `ppc-internal-token` in **both** `goapps-staging` and `goapps-production`. Recorded here only so its contract is not lost:
+The secret exists in **both** `goapps-staging` and `goapps-production`. Existence is not enough — **the key name must be exactly `PPC_INTERNAL_TOKEN`.**
+
+⚠️ **This actually went wrong on staging (2026-07-29).** The secret had been created with key `token`. Manifests reference `key: PPC_INTERNAL_TOKEN`, so the pod would have failed with `CreateContainerConfigError` — it never starts, and **nothing appears in application logs**. `createdb` succeeding proves nothing here: that Job runs `postgres:18-alpine` and reads only `postgres-secret`.
+
+**Production almost certainly has the same defect** — it was created in the same sitting. Check it before Step 4 of §4.
+
+```bash
+kubectl get secret ppc-internal-token -n <namespace> -o jsonpath='{.data}' | jq 'keys'
+# REQUIRED: the list must contain "PPC_INTERNAL_TOKEN"
+```
+
+If it is missing, add it (do not delete the secret; `kubectl apply` merges keys, so the old `token` key survives harmlessly and manifests only read `PPC_INTERNAL_TOKEN`):
+
+```bash
+kubectl create secret generic ppc-internal-token -n <namespace> \
+  --from-literal=PPC_INTERNAL_TOKEN='<same value as INTERNAL_SERVICE_TOKEN in goapps-internal-token>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Contract, so it is not lost:
 
 - Key name: `PPC_INTERNAL_TOKEN`.
 - Consumed twice by `deployment.yaml` and twice by `seed-job.yaml` — as `PPC_INTERNAL_TOKEN` and as `PPC_JWT_SERVICE_SECRET`, both from the same key.
@@ -88,21 +107,58 @@ cd goapps-infra && git pull
 ### Step 4 — verify the manifests actually apply
 
 ```bash
-kustomize build services/ppc-service/overlays/staging | kubectl apply --dry-run=server -f -
+kubectl apply -k services/ppc-service/overlays/staging --dry-run=server
 ```
+
+Use `kubectl apply -k`, **not** `kustomize build … | kubectl apply -f -`. `kubectl` has kustomize built in; the standalone `kustomize` binary is not installed on the staging/production hosts and the piped form fails with `Command 'kustomize' not found` followed by `error: no objects passed to apply`.
 
 **This is the only real check for D-2** (the duplicate `metrics` ServicePort on 8082). Kubernetes enforces ServicePort uniqueness on `(protocol, port)`, not on name, so a second entry on 8082 makes the Service unappliable. `kustomize build` exits 0 on it and `kubeconform` is schema-only — neither catches it.
 
-The duplicate port has been removed and the ServiceMonitor moved to `port: http`, but **this dry-run has never been executed**: `kubectl` is not installed on the workstation where the fix was made. Run it before trusting the fix.
+Expected output — five objects accepted:
 
-### Step 5 — let ArgoCD deploy
+```
+service/ppc-service created (server dry run)
+deployment.apps/ppc-service created (server dry run)
+horizontalpodautoscaler.autoscaling/ppc-service-hpa created (server dry run)
+servicemonitor.monitoring.coreos.com/ppc-service created (server dry run)
+ingress.networking.k8s.io/ppc-service created (server dry run)
+```
 
-Staging auto-syncs.
+A `commonLabels is deprecated` warning is pre-existing and appears for every service — ignore it.
+
+✅ **Executed on staging 2026-07-29 — all five objects accepted. D-2 is closed.** A duplicate `(protocol, port)` would have been rejected here with `spec.ports[1]: Duplicate value`.
+
+### Step 5a — register the ArgoCD Application — **REQUIRED ONE-TIME MANUAL STEP**
+
+⚠️ **Nothing in this repo applies `argocd/apps/**` for you.** There is no app-of-apps root Application, and `sync-argocd.yml` only syncs Applications that *already exist* in the cluster. A new service's Application CR sits in git, valid and reviewed, and is never created — `argocd app get` then fails with `applications.argoproj.io "<name>" not found`. This bit PPC on 2026-07-29 in both environments.
 
 ```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443 &
-argocd app get ppc-service-staging
-argocd app sync ppc-service-staging     # only if it has not self-synced
+kubectl apply -f argocd/apps/staging/ppc-service.yaml
+kubectl apply -f argocd/apps/production/ppc-service.yaml
+```
+
+A `metadata.finalizers` warning on apply is expected and harmless.
+
+### Step 5b — let ArgoCD deploy
+
+Staging auto-syncs. Production does not — see §4.
+
+**The `argocd` CLI needs `argocd login`, not just a port-forward.** A bare `kubectl port-forward svc/argocd-server -n argocd 8080:443` leaves the CLI with no server address and it exits `Argo CD server address unspecified`. Use the kubectl-native equivalents instead — they need no login and work identically on the production host, which has no `argocd` binary at all:
+
+```bash
+kubectl get application ppc-service-staging -n argocd \
+  -o custom-columns='SYNC:.status.sync.status,HEALTH:.status.health.status,REV:.status.sync.revision'
+
+# force a refresh (equivalent to `argocd app get --hard-refresh`)
+kubectl patch application ppc-service-staging -n argocd --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+```
+
+If a Deployment was applied out-of-band (e.g. `kubectl apply -k` during setup), the Application reports `OutOfSync` / `Missing` even though a pod is Running — ArgoCD does not yet own those resources. Confirm the provenance before syncing:
+
+```bash
+kubectl get deploy ppc-service -n goapps-production -o jsonpath='{.metadata.labels}' | jq
+# no `argocd.argoproj.io/instance` label ⇒ applied by hand; the next sync adopts it
 ```
 
 ### Step 6 — migrate
@@ -112,6 +168,32 @@ argocd app sync ppc-service-staging     # only if it has not self-synced
 ```
 
 Migrations use a **dedicated version table `schema_migrations_ppc`** (`x-migrations-table` in the job's `DATABASE_URL`), not the shared `schema_migrations`.
+
+#### Step 6b — migrate IAM too — **the menu and permissions live there, not in `ppc_db`**
+
+⚠️ **`ppc-setup.sh migrate` does NOT create the PPC menu.** PPC's menu entries, permissions and roles are seeded by **IAM** migrations `000079`–`000081`, which target the `goapps` database and `schema_migrations_iam` — a different database *and* a different version table. Skip this and the PPC pages load fine by direct URL while the sidebar stays empty. That is exactly what happened on 2026-07-29 in both environments.
+
+```bash
+./scripts/iam-setup.sh goapps-staging migrate
+
+kubectl exec -it postgres-0 -n database -- psql -U stgapps -d goapps \
+  -c "SELECT version, dirty FROM schema_migrations_iam;"    # must be >= 81, dirty = false
+```
+
+| IAM migration | What it seeds |
+|---|---|
+| `000079_seed_ppc_roles_menus_permissions` | 6 roles (PPC/PC/PM/MARKETING/MANAGEMENT/OPERATOR), `ppc.*` permissions, the `Production Plan` root menu tree, `menu_permissions`, and the `SUPER_ADMIN` grant |
+| `000080_fix_ppc_menu_urls` | Realigns 8 singular `menu_url` values to the real plural Next.js routes (keyed by `menu_code`, idempotent) |
+| `000081_seed_ppc_customer_menu_and_sync_permissions` | Customer master menu leaf + `.sync` permissions; **widens `chk_permission_action` from 35 to 36 values to admit `'sync'`** |
+
+Because `000081` does `DROP CONSTRAINT` + `ADD CONSTRAINT` on `chk_permission_action`, compare production's live definition against staging's before running it there — a drifted production constraint would be replaced wholesale:
+
+```bash
+kubectl exec -it postgres-0 -n database -- psql -U <prod-user> -d <prod-db> -c \
+  "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'chk_permission_action';"
+```
+
+Users with an existing session must log out and back in — the sidebar comes from `useMenuTree()` and permissions resolve at session start.
 
 ### Step 7 — seed (staging only)
 
