@@ -61,6 +61,14 @@ spec:
               value: "goapps"
             - name: DATABASE_SSLMODE
               value: "disable"
+            # REQUIRED because DATABASE_HOST is PgBouncer in transaction pooling
+            # mode. Without it lib/pq issues Parse and Bind as two separate round
+            # trips; PgBouncer may reassign the server connection in between, so
+            # the unnamed prepared statement being bound belongs to a different
+            # query. Observed in production 2026-07-31 as cross-wired parameters
+            # corrupting cal_job_chunk lifecycle writes.
+            - name: DATABASE_BINARY_PARAMETERS
+              value: "true"
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
