@@ -374,8 +374,12 @@ kubectl delete job iam-migrate -n goapps-staging --ignore-not-found
 
 | Environment | Backup Mount | Clone Command |
 |-------------|--------------|---------------|
-| **Staging** | `/staging-goapps-backup` | Use `overlays/staging/backup-patch.yaml` |
-| **Production** | `/goapps-backup` | Use `overlays/production/backup-patch.yaml` |
+| **Staging** | `/staging-goapps-backup` | `kubectl apply -k overlays/staging/backup/` |
+| **Production** | `/goapps-backup` | `kubectl apply -k overlays/production/backup/` |
+
+> The `overlays/{staging,production}/backup-patch.yaml` files this table used to point at are
+> **dead** -- no kustomization references them. The live `hostPath` patches are inside
+> `overlays/{staging,production}/backup/kustomization.yaml`.
 
 ---
 

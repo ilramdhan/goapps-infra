@@ -299,12 +299,12 @@ goapps-infra/
 ├── 📁 overlays/                      # Environment-specific patches
 │   ├── staging/                      # Staging environment
 │   │   ├── backup/                   # Staging backup paths
-│   │   ├── backup-patch.yaml         # Override backup locations
+│   │   ├── backup-patch.yaml         # DEAD -- not referenced; real patches live in backup/
 │   │   ├── ingress.yaml              # Staging ingress rules
 │   │   └── minio/                    # Staging MinIO config
 │   └── production/                   # Production environment
 │       ├── backup/                   # Production backup paths
-│       ├── backup-patch.yaml         # Override backup locations
+│       ├── backup-patch.yaml         # DEAD -- not referenced; real patches live in backup/
 │       ├── ingress.yaml              # Production ingress rules
 │       └── minio/                    # Production MinIO config
 │

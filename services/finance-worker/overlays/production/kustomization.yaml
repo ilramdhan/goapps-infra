@@ -4,6 +4,7 @@ namespace: goapps-production
 resources:
 - ../../base
 patches:
+- path: patches/env-database.yaml
 - path: patches/resources.yaml
 - path: patches/env-iam-storage.yaml
 images:

@@ -282,7 +282,7 @@ goapps-infra/
 ├── overlays/                          # Environment-specific overrides for shared infra
 │   ├── staging/
 │   │   ├── ingress.yaml               # staging-goapps.mutugading.com
-│   │   ├── backup-patch.yaml
+│   │   ├── backup-patch.yaml         # DEAD -- referenced by no kustomization
 │   │   ├── backup/
 │   │   │   └── kustomization.yaml
 │   │   └── minio/
@@ -290,7 +290,7 @@ goapps-infra/
 │   │       └── minio-patch.yaml
 │   └── production/
 │       ├── ingress.yaml               # goapps.mutugading.com + Basic Auth on Prometheus
-│       ├── backup-patch.yaml
+│       ├── backup-patch.yaml         # DEAD -- referenced by no kustomization
 │       ├── backup/
 │       │   └── kustomization.yaml
 │       └── minio/
@@ -456,17 +456,24 @@ goapps-infra/
 - **Type**: StatefulSet (single pod)
 - **Storage**: 20Gi PersistentVolumeClaim
 - **Access**: `postgres.database.svc.cluster.local:5432` (internal only)
-- **Schemas**: `finance`, `auth`, `hr`, `export`
+- **Schemas**: **every application table lives in `public`.** `base/database/postgres/configmap.yaml` (`init-schemas.sql`) does create four extra schemas — `export`, `auth`, `hr`, `finance` — but they are **empty**: no migration in `goapps-backend/services/*/migrations/postgres/` issues a `CREATE SCHEMA` or a schema-qualified `CREATE TABLE`. Do not assume a table is reachable as `finance.x` or `hr.x`; qualify with `public.` or nothing at all. (The `finance.*` / `hr.*` strings that appear in IAM migrations are **permission codes**, e.g. `finance.cost.caljob.create` — not schema names.)
 - **Timezone**: `Asia/Jakarta`
 
 Key configuration (`configmap.yaml`):
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
-| `max_connections` | 100 (configmap) / 150 (RULES.md target) | PgBouncer pooling + direct |
-| `shared_buffers` | 256MB | ~25% of available RAM |
+| `max_connections` | 200 | PgBouncer pooling + direct; raised for the Phase C calc engine |
+| `shared_buffers` | 1GB | Shared page cache |
+| `effective_cache_size` | 3GB | Planner hint |
 | `work_mem` | 16MB | Per-operation sort/hash memory |
-| `maintenance_work_mem` | 128MB | VACUUM, CREATE INDEX |
+| `maintenance_work_mem` | 512MB | VACUUM, CREATE INDEX |
+| `wal_buffers` | 16MB | WAL staging |
+| `max_wal_size` | 1GB | Checkpoint spacing |
+
+> Values above are read straight from `base/database/postgres/configmap.yaml`. The table in
+> `RULES.md` ("Database Management → PostgreSQL Configuration") is **stale** — it still lists
+> 150 / 256MB / 128MB. Treat the configmap as the source of truth.
 
 ### PgBouncer (Connection Pooler)
 
@@ -504,6 +511,10 @@ DATABASE_HOST: "postgres.database.svc.cluster.local"
 - **Note**: Single pod (no clustering) -- single point of failure risk
 
 ### Adding a New Schema
+
+> **Rarely what you want.** The platform does not actually use per-module schemas — all tables
+> are in `public` (see "Schemas" above), and `init-schemas.sql` only runs on **first initdb** of an
+> empty data directory, so editing it does nothing to an existing volume. Prefer a plain migration.
 
 Edit `base/database/postgres/configmap.yaml` and add to `init-schemas.sql`:
 
@@ -641,7 +652,7 @@ KubeDeploymentReplicasMismatch, PodOOMKilled, PodRestartingTooOften, HPAMaxedOut
 
 Any Deployment in `goapps-staging` / `goapps-production` inherits all of them the moment it exists. **Silence after a rollout means the rollout succeeded** — these rules fire only on `CrashLoopBackOff`, `Pending`, unavailable replicas, or OOMKills. The email flood people associate with "a new image went out" is the signature of a *failing* rollout, not a routine notification. Do not read a quiet inbox as missing coverage.
 
-Only genuinely service-specific alerts need authoring (e.g. `ppc_db` size/connection/backup rules live in `postgres-alerts.yaml`).
+Only genuinely service-specific alerts need authoring. Note that `postgres-alerts.yaml` currently carries **only one** `ppc_db`-specific rule — `postgres-deadlocks-ppc` ("PostgreSQL Deadlocks Detected (ppc_db)"). There are **no** `ppc_db` size, connection-count, or backup rules; an earlier version of this doc claimed there were.
 
 ⚠️ **`grafana-alert-rules.yaml` is NOT in `alert-rules/kustomization.yaml`** — only `complete-alerts`, `grafana-alertrules-configmap`, `postgres-alerts`, `cost-calc-alerts` are applied. It appears to be a superseded copy of `grafana-alertrules-configmap.yaml`. Left in place deliberately: **never delete, rename, regenerate, or reformat Grafana alert config** — this configuration was lost once before and had to be rebuilt from scratch. Never add a uid to `deleteRules:`.
 
@@ -833,14 +844,16 @@ kubectl get cronjobs -n database              # Check schedules and last run
 kubectl get jobs -n database                  # Check recent job status
 # Verify MinIO bucket contents
 # Verify Backblaze B2 console
-# Check VPS disk: ls -la /mnt/goapps-backup/postgres/
+# Check VPS disk (path differs per host -- see note below):
+#   production: ls -la /goapps-backup/postgres/
+#   staging:    ls -la /staging-goapps-backup/postgres/
 ```
 
 ### Restore Testing (Monthly)
 
 ```bash
 # 1. Get latest backup
-BACKUP=$(ls -t /mnt/stgapps-backup/postgres/*.sql.gz | head -1)
+BACKUP=$(ls -t /staging-goapps-backup/postgres/*.sql.gz | head -1)   # staging; production uses /goapps-backup/postgres
 
 # 2. Create test database
 kubectl exec -it postgres-0 -n database -- psql -U postgres -c "CREATE DATABASE goapps_restore_test"
@@ -1257,8 +1270,9 @@ These are hard-won lessons from production operations:
 | Backup CronJob env | Currently hardcoded to "production" label even in staging -- known bug. |
 | Pod Disruption Budgets | None defined -- needed for StatefulSets (PostgreSQL, RabbitMQ, MinIO) to survive node drains safely. |
 | Resource Quotas | No per-namespace ResourceQuota resources -- risk of one namespace exhausting cluster resources. |
-| PostgreSQL ServiceMonitor | Exporter is deployed but no ServiceMonitor resource wires it into Prometheus scraping. |
+| ~~PostgreSQL ServiceMonitor~~ | **Resolved — this gap no longer exists.** `base/database/exporter/deployment.yaml` ships a `ServiceMonitor` named `postgres-exporter` (namespace `monitoring`, `namespaceSelector: database`, port `metrics`, interval 30s) alongside the Deployment and Service. |
 | App service accounts | Workloads run under the default K8s service account -- no dedicated RBAC service accounts per app. |
-| Documentation path inconsistencies | Backup paths documented inconsistently, e.g. `/staging-goapps-backup` vs `/mnt/staging-goapps-backup`. |
+| Backup path targeting (understated before) | Not merely a doc typo. The **effective** paths come from `overlays/{staging,production}/backup/kustomization.yaml`, which patch `hostPath` to `/staging-goapps-backup/postgres` and `/goapps-backup/postgres`. The **base** (`base/backup/cronjobs/postgres-backup.yaml:210,312,414`, `minio-backup.yaml:88`) still says `/mnt/goapps-backup` -- applying base **without** an overlay writes to a path that is not the mounted backup disk. `scripts/bootstrap.sh:82-84` also still mounts at `/mnt/goapps-backup` / `/mnt/stgapps-backup`, so a **newly bootstrapped host would reproduce the mismatch** even though the two existing hosts were fixed by hand. |
+| Dead overlay files | `overlays/staging/backup-patch.yaml` and `overlays/production/backup-patch.yaml` are **not referenced by any kustomization** (the live patches are in `overlays/{staging,production}/backup/kustomization.yaml`). They are stale leftovers -- do not edit them expecting an effect; they are candidates for deletion. |
 | RabbitMQ clustering | Single pod, no clustering -- SPOF for the message queue. |
 | Jaeger storage | In-memory only (**5000** trace cap, `MEMORY_MAX_TRACES`) -- consider persistent storage for production. |

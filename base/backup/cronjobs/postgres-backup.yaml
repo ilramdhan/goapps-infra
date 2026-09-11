@@ -11,16 +11,104 @@ metadata:
 data:
   backup.sh: |
     #!/bin/bash
-    set -e
-    
+    # NOTE: `set -e` alone was NOT enough. On 2026-09-05 a staging ppc_db dump
+    # exited 0 while producing a TRUNCATED file (20734 bytes vs ~43000 baseline),
+    # and the retention step then pruned older, healthy backups anyway.
+    # pipefail closes the "pg_dump died inside a pipe" hole; verify_dump() below
+    # closes the "pg_dump exited 0 but emitted a short stream" hole; and ALL
+    # deletion of old backups was moved to the very end, gated on verification.
+    set -Eeuo pipefail
+
     # Configuration
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
     ENVIRONMENT="${ENVIRONMENT:-staging}"
     BACKUP_FILE="/backup/${ENVIRONMENT}_goapps_${TIMESTAMP}.sql.gz"
-    
+    PPC_BACKUP_FILE="/backup/${ENVIRONMENT}_ppc_db_${TIMESTAMP}.sql.gz"
+
+    # `set -u` would abort on any unset optional credential, so default them all.
+    MINIO_ENDPOINT="${MINIO_ENDPOINT:-}"
+    MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
+    MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-}"
+    MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-}"
+    S3_ENDPOINT="${S3_ENDPOINT:-}"
+    S3_BUCKET="${S3_BUCKET:-}"
+    AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
+    AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+
+    # Floor for a gzipped plain-format pg_dump. Even a schema-only, data-free
+    # dump of these databases is several KB; anything under this is broken.
+    MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-2048}"
+
+    # Set to 1 by any dump that fails verification. While this is 1 NOTHING
+    # old is deleted, locally or remotely, and the job exits non-zero.
+    BACKUP_DEGRADED=0
+
+    MC_OPTS=""
+    if [ "${MINIO_USE_SSL}" = "true" ]; then
+      MC_OPTS="--insecure"
+    fi
+
+    # verify_dump <file>
+    # Proves the artefact is a COMPLETE pg_dump rather than merely non-empty.
+    # Three independent checks, cheapest first:
+    #   1. size floor            - catches an empty/near-empty stream
+    #   2. gzip -t               - catches a corrupt or half-written gzip member
+    #   3. pg_dump end marker    - catches the case gzip CANNOT see: pg_dump
+    #      stopping early, gzip receiving a clean EOF and writing a perfectly
+    #      valid trailer over an incomplete SQL body. This is the check that
+    #      would have caught the 2026-09-05 truncation.
+    verify_dump() {
+      dump_path="$1"
+      if [ ! -s "${dump_path}" ]; then
+        echo "[$(date)] VERIFY FAIL: ${dump_path} is missing or empty" >&2
+        return 1
+      fi
+
+      dump_size=$(wc -c < "${dump_path}" | tr -d ' ')
+      if [ "${dump_size}" -lt "${MIN_DUMP_BYTES}" ]; then
+        echo "[$(date)] VERIFY FAIL: ${dump_path} is ${dump_size} bytes, below MIN_DUMP_BYTES=${MIN_DUMP_BYTES}" >&2
+        return 1
+      fi
+
+      if ! gzip -t "${dump_path}"; then
+        echo "[$(date)] VERIFY FAIL: ${dump_path} failed gzip integrity check" >&2
+        return 1
+      fi
+
+      # Assign to a variable rather than piping into `grep -q`: an early-exiting
+      # grep would SIGPIPE `tail` and pipefail would then report a false failure.
+      dump_tail=$(gzip -dc "${dump_path}" | tail -20)
+      case "${dump_tail}" in
+        *"PostgreSQL database dump complete"*) ;;
+        *)
+          echo "[$(date)] VERIFY FAIL: ${dump_path} has no pg_dump completion marker - TRUNCATED (${dump_size} bytes)" >&2
+          return 1
+          ;;
+      esac
+
+      echo "[$(date)] VERIFY OK: ${dump_path} (${dump_size} bytes, gzip intact, completion marker present)"
+      return 0
+    }
+
+    # warn_if_shrunk <new-file> <glob-prefix>
+    # Advisory only - a real dump can legitimately shrink after a data purge,
+    # so this never fails the job. The completion marker above is the check
+    # that is allowed to be fatal.
+    warn_if_shrunk() {
+      new_file="$1"
+      prev_file=$(ls -1t "$2"*.sql.gz 2>/dev/null | grep -v "^${new_file}$" | head -1 || true)
+      if [ -n "${prev_file}" ] && [ -f "${prev_file}" ]; then
+        new_size=$(wc -c < "${new_file}" | tr -d ' ')
+        prev_size=$(wc -c < "${prev_file}" | tr -d ' ')
+        if [ "${prev_size}" -gt 0 ] && [ "$(( new_size * 100 / prev_size ))" -lt 50 ]; then
+          echo "[$(date)] WARNING: ${new_file} (${new_size}B) is less than half of previous ${prev_file} (${prev_size}B)" >&2
+        fi
+      fi
+    }
+
     echo "[$(date)] Starting PostgreSQL backup..."
-    
-    # Create backup
+
+    # Create backup - pipefail now makes a pg_dump failure inside this pipe fatal
     PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
       -h postgres-0.postgres.database.svc.cluster.local \
       -U postgres \
@@ -28,26 +116,32 @@ data:
       --format=plain \
       --no-owner \
       --no-acl | gzip > "${BACKUP_FILE}"
-    
+
     echo "[$(date)] Backup created: ${BACKUP_FILE}"
-    echo "[$(date)] Size: $(du -h ${BACKUP_FILE} | cut -f1)"
-    
+    echo "[$(date)] Size: $(du -h "${BACKUP_FILE}" | cut -f1)"
+
+    # Verify BEFORE anything is uploaded or pruned.
+    if ! verify_dump "${BACKUP_FILE}"; then
+      echo "[$(date)] FATAL: goapps dump failed verification. Removing the bad artefact." >&2
+      echo "[$(date)] FATAL: no old backup has been deleted - existing backups remain intact." >&2
+      rm -f "${BACKUP_FILE}"
+      exit 1
+    fi
+    warn_if_shrunk "${BACKUP_FILE}" "/backup/${ENVIRONMENT}_goapps_"
+
     # Upload to MinIO (local)
     if [ -n "${MINIO_ENDPOINT}" ]; then
       echo "[$(date)] Uploading to MinIO..."
       # Use HTTPS if MINIO_USE_SSL is set to true, otherwise use HTTP
       if [ "${MINIO_USE_SSL}" = "true" ]; then
         mc alias set minio https://${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 --insecure
-        mc cp "${BACKUP_FILE}" minio/postgres-backups/ --insecure
-        mc rm --recursive --force --older-than 168h0m0s minio/postgres-backups/ --insecure 2>/dev/null || true
       else
         mc alias set minio http://${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4
-        mc cp "${BACKUP_FILE}" minio/postgres-backups/
-        mc rm --recursive --force --older-than 168h0m0s minio/postgres-backups/ 2>/dev/null || true
       fi
+      mc cp "${BACKUP_FILE}" minio/postgres-backups/ ${MC_OPTS}
       echo "[$(date)] Uploaded to MinIO"
     fi
-    
+
     # Upload to Cloud S3 (Backblaze B2)
     if [ -n "${S3_ENDPOINT}" ]; then
       echo "[$(date)] Uploading to Cloud S3..."
@@ -55,54 +149,70 @@ data:
       mc cp "${BACKUP_FILE}" cloud/${S3_BUCKET}/${ENVIRONMENT}/
       echo "[$(date)] Uploaded to Cloud S3"
     fi
-    
+
     # --- ppc_db (separate database on the same StatefulSet, locked decision D1) ---
-    # Non-fatal by design: the goapps dump above has already been created and
-    # uploaded, and `set -e` is active, so an unguarded dump failure here would
-    # abort the script before the retention cleanup below.
-    PPC_BACKUP_FILE="/backup/${ENVIRONMENT}_ppc_db_${TIMESTAMP}.sql.gz"
+    # A ppc_db failure no longer aborts the script (the goapps dump above is
+    # already safely uploaded), but it DOES set BACKUP_DEGRADED, which suppresses
+    # every deletion below and makes the job exit non-zero. This is exactly the
+    # database that was silently truncated on 2026-09-05.
     echo "[$(date)] Starting ppc_db backup..."
-    if ( set -o pipefail
-         PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
-           -h postgres-0.postgres.database.svc.cluster.local \
-           -U postgres \
-           -d ppc_db \
-           --format=plain \
-           --no-owner \
-           --no-acl | gzip > "${PPC_BACKUP_FILE}" ); then
+    if PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+         -h postgres-0.postgres.database.svc.cluster.local \
+         -U postgres \
+         -d ppc_db \
+         --format=plain \
+         --no-owner \
+         --no-acl | gzip > "${PPC_BACKUP_FILE}" \
+       && verify_dump "${PPC_BACKUP_FILE}"; then
       echo "[$(date)] ppc_db backup created: ${PPC_BACKUP_FILE}"
-      echo "[$(date)] Size: $(du -h ${PPC_BACKUP_FILE} | cut -f1)"
+      echo "[$(date)] Size: $(du -h "${PPC_BACKUP_FILE}" | cut -f1)"
+      warn_if_shrunk "${PPC_BACKUP_FILE}" "/backup/${ENVIRONMENT}_ppc_db_"
 
       # Upload ppc_db dump to MinIO (local)
       if [ -n "${MINIO_ENDPOINT}" ]; then
-        if [ "${MINIO_USE_SSL}" = "true" ]; then
-          mc cp "${PPC_BACKUP_FILE}" minio/postgres-backups/ --insecure \
-            || echo "[$(date)] WARNING: ppc_db MinIO upload failed" >&2
-        else
-          mc cp "${PPC_BACKUP_FILE}" minio/postgres-backups/ \
-            || echo "[$(date)] WARNING: ppc_db MinIO upload failed" >&2
-        fi
+        mc cp "${PPC_BACKUP_FILE}" minio/postgres-backups/ ${MC_OPTS} \
+          || { echo "[$(date)] WARNING: ppc_db MinIO upload failed" >&2; BACKUP_DEGRADED=1; }
       fi
 
       # Upload ppc_db dump to Cloud S3 (Backblaze B2)
       if [ -n "${S3_ENDPOINT}" ]; then
         mc cp "${PPC_BACKUP_FILE}" cloud/${S3_BUCKET}/${ENVIRONMENT}/ \
-          || echo "[$(date)] WARNING: ppc_db Cloud S3 upload failed" >&2
+          || { echo "[$(date)] WARNING: ppc_db Cloud S3 upload failed" >&2; BACKUP_DEGRADED=1; }
       fi
     else
-      echo "[$(date)] WARNING: ppc_db backup failed (goapps backup already succeeded)" >&2
+      echo "[$(date)] ERROR: ppc_db backup failed or failed verification (goapps backup already succeeded)" >&2
       rm -f "${PPC_BACKUP_FILE}"
+      BACKUP_DEGRADED=1
+    fi
+
+    # ===== RETENTION =====
+    # Everything that DELETES lives here, after every dump has been verified.
+    # Ordering is the point: a failed or truncated dump must never be the reason
+    # a healthy older backup disappears.
+    if [ "${BACKUP_DEGRADED}" != "0" ]; then
+      echo "[$(date)] FATAL: at least one dump failed verification or upload." >&2
+      echo "[$(date)] FATAL: retention SKIPPED - no old backup deleted, local or remote." >&2
+      exit 1
+    fi
+
+    # Remote retention on MinIO (window unchanged: 168h / 7 days).
+    # Errors are no longer sent to /dev/null: a prune that cannot run is a real
+    # signal, but it must not turn an otherwise-good backup into a failed job.
+    if [ -n "${MINIO_ENDPOINT}" ]; then
+      echo "[$(date)] Pruning MinIO backups older than 168h..."
+      mc rm --recursive --force --older-than 168h0m0s minio/postgres-backups/ ${MC_OPTS} \
+        || echo "[$(date)] WARNING: MinIO retention prune failed" >&2
     fi
 
     # Cleanup old local backups (keep 7 days)
     echo "[$(date)] Cleaning up old backups..."
     find /backup -name "*.sql.gz" -mtime +7 -delete
-    
+
     echo "[$(date)] Backup completed successfully!"
 
   cleanup-cloud.sh: |
     #!/bin/bash
-    set -e
+    set -Eeuo pipefail
     
     # Cleanup cloud backups older than 7 days
     ENVIRONMENT="${ENVIRONMENT:-staging}"
