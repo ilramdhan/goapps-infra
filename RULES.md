@@ -545,14 +545,25 @@ git push origin infra/add-my-service
 
 ### PostgreSQL Configuration
 
+Values below are the **actual** contents of `base/database/postgres/configmap.yaml`.
+(This table previously listed 150 / 256MB / 128MB, which had drifted from the manifest.)
+
 | Setting | Value | Reason |
 |---------|-------|--------|
-| max_connections | 150 | Allow for PgBouncer pooling + direct connections |
-| shared_buffers | 256MB | ~25% of available RAM for caching |
+| max_connections | 200 | PgBouncer pooling + direct; raised for the Phase C calc engine |
+| shared_buffers | 1GB | Shared page cache |
+| effective_cache_size | 3GB | Planner hint |
 | work_mem | 16MB | Per-operation memory |
-| maintenance_work_mem | 128MB | For VACUUM, CREATE INDEX |
+| maintenance_work_mem | 512MB | For VACUUM, CREATE INDEX |
+| wal_buffers | 16MB | WAL staging |
+| max_wal_size | 1GB | Checkpoint spacing |
 
 ### Adding New Schema
+
+> **Almost never needed.** All application tables live in the `public` schema; the schemas
+> created by `init-schemas.sql` (`export`, `auth`, `hr`, `finance`) are empty. `init-schemas.sql`
+> also only executes on **first initdb** of an empty data directory, so editing it has no effect
+> on an existing volume. Add tables via a normal migration in `goapps-backend` instead.
 
 1. Edit `base/database/postgres/configmap.yaml`
 2. Add CREATE SCHEMA statement to `init-schemas.sql`
