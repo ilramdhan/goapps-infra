@@ -4,6 +4,7 @@ namespace: goapps-staging
 resources:
 - ../../base
 patches:
+- path: patches/env-database.yaml
 - path: patches/resources.yaml
 images:
 - name: ghcr.io/mutugading/finance-cost-orchestrator
