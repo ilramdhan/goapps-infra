@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging Grafana sqlite backup overlay.
+# Backup path: /staging-goapps-backup/grafana (the script creates the subdirectory).
+#
+# NOTE: no `namespace:` field. Unlike overlays/*/backup, which pin `database`,
+# everything here MUST remain in `monitoring` -- the RoleBinding granting
+# pods/exec is namespaced and a transformer would silently retarget it.
+# See base/monitoring/grafana-backup/rbac.yaml.
+
+resources:
+  - ../../../base/monitoring/grafana-backup
+
+patches:
+  # Patched by NAME, not by numeric index. The /env/N/value style used against
+  # minio-backup.yaml in overlays/*/backup is intentionally NOT copied here:
+  # it silently retargets if anyone inserts an env var above the index.
+  - target:
+      kind: CronJob
+      name: grafana-db-backup
+    patch: |-
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/0/value
+        value: "staging"
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/volumes/0/hostPath/path
+        value: "/staging-goapps-backup"
