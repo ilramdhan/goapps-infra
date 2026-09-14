@@ -673,6 +673,61 @@ data:
               severity: critical
             isPaused: false
 
+          # NOTE the namespace: grafana-db-backup runs in `monitoring`, not
+          # `database` like the two rules above. pods/exec is namespaced, so the
+          # job has to live where Grafana runs. Matching on namespace="database"
+          # here would silently never fire.
+          #
+          # This one is worth alerting on even though it is "only" a backup:
+          # grafana.db is the ONLY copy of the contact points, notification
+          # policy tree and UI-created dashboards. The alert email routing this
+          # whole ruleset depends on lives in that file. A backup gap here is
+          # invisible until the day the PVC is gone, which has already happened
+          # once (2026-07).
+          #
+          # Unlike minio-backup-to-disk, this job does NOT swallow its own
+          # errors: integrity_check, the non-empty table check and gzip -t all
+          # exit 1 before retention runs, so a torn or corrupt snapshot shows up
+          # as a real Job failure rather than a silent success.
+          - uid: grafana-db-backup-failed
+            title: Grafana DB Backup Failed
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 3600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: kube_job_status_failed{namespace="monitoring",job_name=~"grafana-db-backup.*"} > 0
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                  refId: C
+            noDataState: OK
+            execErrState: Error
+            for: 5m
+            annotations:
+              summary: "🔴 Grafana DB backup FAILED"
+              description: "Grafana backup job {{ $labels.job_name }} in namespace monitoring has failed. grafana.db holds the alert contact points, notification policies and UI dashboards -- it is the only copy. Check the job logs: a failure means either Grafana was unreachable (selector/pod down) or the snapshot failed its integrity check."
+            labels:
+              severity: critical
+            isPaused: false
+
           - uid: redis-down
             title: Redis Down
             condition: C
