@@ -3,7 +3,10 @@
 # is exposed by the RabbitMQ Prometheus plugin and surfaced to the HPA via
 # prometheus-adapter (registered as an external metric). Target is an average
 # value of 5 ready messages per replica.
-# minReplicas/maxReplicas are patched per environment (staging 2->10, prod 2->50).
+# minReplicas/maxReplicas are patched per environment (staging 2->4, prod 2->7).
+# The base default is deliberately the SAFE production cap, not the theoretical
+# one: a new overlay that forgets the hpa patch inherits a node-safe fan-out.
+# Sizing arithmetic lives in the production overlay patch.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -14,7 +17,7 @@ spec:
     kind: Deployment
     name: finance-cost-worker
   minReplicas: 2
-  maxReplicas: 50
+  maxReplicas: 7
   metrics:
     - type: External
       external:

@@ -1,8 +1,28 @@
-# Production: full fan-out up to 50 pods per spec §5.1.
+# Production fan-out cap — sized against the 16Gi single node, NOT spec §5.1's
+# theoretical 50. (The previous value of 20 was already a silent deviation from
+# the "50" this comment used to claim; neither figure was ever node-checked.)
+#
+# Budget arithmetic (node = 16384Mi, measured real usage 7100Mi at 2 workers):
+#   free today                                    16384 - 7100 = 9284Mi
+#   less kernel / page-cache floor                              -1024Mi
+#   less monitoring survival reserve (uncapped;                 -1024Mi
+#        Grafana was an OOM victim on 2026-08-13)
+#   less postgres growth headroom under calc load               -1024Mi
+#   less finance-service concurrent 2->3 scale-up (1 x 2Gi)     -2048Mi
+#        (cost fan-out is exactly the load that trips its HPA)
+#   = usable for additional workers                              4164Mi
+#   4164 / 768Mi per pod = 5.42 -> 5 extra pods on top of minReplicas 2
+#
+# => maxReplicas 7.  7 x 768Mi = 5376Mi committed, vs 15360Mi at the old cap of
+# 20 — a 9984Mi reduction, and the old cap alone exceeded the whole node.
+# Throughput cost is real but bounded: at 5 ready messages/replica the drain
+# rate falls to ~35% of the theoretical max, so a backlog takes longer to clear.
+# That is degraded throughput; 20 pods was a guaranteed node-wide outage.
+# Per-pod memory is deliberately left at 768Mi — see patches/resources.yaml.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: finance-cost-worker-hpa
 spec:
   minReplicas: 2
-  maxReplicas: 20
+  maxReplicas: 7

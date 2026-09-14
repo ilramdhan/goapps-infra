@@ -1,3 +1,18 @@
+# CPU limit is 750m, not 500m, deliberately.
+# CLAUDE.md §17 records 500m as the *minimum* below which a Next.js pod "will
+# cycle continuously" — so 500m was the documented failure floor, and production
+# was sitting exactly on it with zero margin. The failure mode is CFS throttling
+# during SSR/startup bursts -> health probe misses its deadline -> liveness
+# restart -> repeat. Running at the floor means any traffic burst is a restart.
+#
+# 750m gives 50% headroom over the documented floor. It is nearly free: a CPU
+# limit is a throttling ceiling, not a scheduler reservation — only `requests`
+# (unchanged at 100m) consumes node allocatable. Worst-case CPU commitment rises
+# by 3 x 250m = 750m on an 8000m node, and CPU overcommit degrades via
+# throttling rather than the OOM kill that memory overcommit causes.
+#
+# Memory is unchanged (256Mi/512Mi) — memory is the scarce resource on this
+# node and the frontend has never been an OOM victim.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,4 +28,4 @@ spec:
               cpu: "100m"
             limits:
               memory: "512Mi"
-              cpu: "500m"
+              cpu: "750m"
