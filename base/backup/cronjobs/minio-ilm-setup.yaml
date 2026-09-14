@@ -1,3 +1,8 @@
+# NOT applied by GitOps -- deliberately absent from kustomization.yaml.
+# kind: Job + ttlSecondsAfterFinished + ArgoCD prune/selfHeal = re-run loop,
+# and `mc ilm rule add` appends a duplicate rule on every run.
+# Apply by hand once per cluster, then delete the Job. See kustomization.yaml.
+
 apiVersion: batch/v1
 kind: Job
 metadata:
