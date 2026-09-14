@@ -1,0 +1,15 @@
+# REDACTED — this repository is PUBLIC.
+# ${GRAFANA_ALERT_EMAIL_ADDRESSES} is a documentation placeholder, NOT a
+# variable Grafana expands. Substitute the real recipients before restoring.
+# See README.md in this directory.
+apiVersion: 1
+contactPoints:
+    - orgId: 1
+      name: grafana-default-email
+      receivers:
+        - uid: cfc78ft369zwga
+          type: email
+          settings:
+            addresses: ${GRAFANA_ALERT_EMAIL_ADDRESSES}
+            singleEmail: false
+          disableResolveMessage: false
