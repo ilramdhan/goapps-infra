@@ -1,6 +1,26 @@
 # Production runs at least 2 replicas for availability. The deployment's
 # replicas patch alone is not enough: the HPA (base minReplicas: 1) owns the
 # replica count and scales back down to 1 off-peak.
+#
+# maxReplicas is deliberately LEFT at the base value of 3 (one pod of headroom).
+# The "HPA at Maximum Replicas" alert firing during business hours is real, but
+# raising the cap is the wrong fix on this node:
+#   this pod is 2Gi — the largest in the namespace — so 3 -> 4 adds 2048Mi to
+#   worst-case commitment, on a node that is still at 25280Mi / 16384Mi = 154%
+#   of limits even after the cost-worker fan-out fix. It would spend a third of
+#   the memory that fix just reclaimed.
+# Observed load does not justify it either: the HPA reports 3% CPU (8m) against
+# a 250m request, i.e. ~1/23rd of the 70% scale-up threshold. A workload sitting
+# at 3% CPU is not genuinely saturating 3 replicas.
+#
+# => The ALERT is miscalibrated, not the capacity. Retune it in
+#    base/monitoring/alert-rules/ (out of this change's scope — `base/monitoring`
+#    is owned elsewhere and is not under any ArgoCD Application, see CLAUDE.md §9):
+#    a max-replicas condition is only actionable when the HPA is BOTH at max AND
+#    the driving metric is above target; `for: 10m` on the replica count alone
+#    reports normal steady-state operation as an incident.
+# Revisit this cap only after node memory is genuinely freed (e.g. a second node,
+# or finance-service's 2Gi selling-calc requirement being reduced).
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

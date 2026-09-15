@@ -1,7 +1,7 @@
 # MinIO Backup to VPS Disk ONLY
 # NOT to Backblaze (free tier storage limit)
 # Schedule: Daily at 3 AM
-# Retention: 7 days
+# Retention: 7 days -- postgres-backups mirror ONLY (see RETENTION below)
 
 apiVersion: batch/v1
 kind: CronJob
@@ -29,9 +29,23 @@ spec:
                   set -e
                   ENVIRONMENT="${ENVIRONMENT:-production}"
                   TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                  
+
+                  # Set to 1 by any bucket whose mirror fails. While this is 1
+                  # NOTHING is pruned and the job exits non-zero. Same gate as
+                  # BACKUP_DEGRADED in postgres-backup.yaml: a partial mirror
+                  # must never be the reason an older local copy disappears.
+                  BACKUP_DEGRADED=0
+
+                  # Retention applies to the postgres-backups mirror ONLY.
+                  # 168h0m0s == 7 days, matching the `mc rm --older-than`
+                  # window used against minio/postgres-backups/ in
+                  # postgres-backup.yaml, so the disk mirror ages out in step
+                  # with the bucket it mirrors.
+                  RETENTION="168h0m0s"
+                  PRUNE_DIR="/backup/minio/postgres-backups"
+
                   echo "[$(date)] Starting MinIO backup to VPS disk..."
-                  
+
                   # Configure MinIO alias (source) - Use HTTPS with --insecure for self-signed certs
                   if [ "${MINIO_USE_SSL}" = "true" ]; then
                     mc alias set minio https://${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 --insecure
@@ -40,25 +54,60 @@ spec:
                     mc alias set minio http://${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4
                     MC_OPTS=""
                   fi
-                  
+
                   # Backup buckets to VPS disk (from MINIO_BUCKETS env var)
+                  # A mirror failure is recorded, not swallowed: it degrades the
+                  # job and suppresses the prune below.
                   for bucket in ${MINIO_BUCKETS}; do
                     if mc ls minio/${bucket} ${MC_OPTS} &>/dev/null; then
                       echo "[$(date)] Backing up bucket: ${bucket}"
-                      mc mirror --overwrite ${MC_OPTS} minio/${bucket} /backup/minio/${bucket}/
+                      if ! mc mirror --overwrite ${MC_OPTS} minio/${bucket} /backup/minio/${bucket}/; then
+                        echo "[$(date)] ERROR: mirror FAILED for bucket ${bucket}" >&2
+                        BACKUP_DEGRADED=1
+                      fi
                     else
                       echo "[$(date)] Bucket ${bucket} not found, skipping..."
                     fi
                   done
-                  
-                  # Cleanup old backups (7 days)
-                  echo "[$(date)] Cleaning up backups older than 7 days..."
-                  find /backup/minio -type f -mtime +7 -delete 2>/dev/null || true
-                  
+
+                  # ===== RETENTION =====
+                  # Scope is deliberately narrow. The previous implementation ran
+                  # `find /backup/minio -type f -mtime +7 -delete 2>/dev/null || true`,
+                  # which was broken twice over:
+                  #   1. minio/mc is a UBI-micro image that does NOT ship `find`.
+                  #      "command not found" went to /dev/null and the non-zero
+                  #      exit was eaten by `|| true`, so the job reported Complete
+                  #      while deleting nothing for ~7 months (disk hit 96%).
+                  #   2. Had it worked, it would have deleted goapps-{staging,
+                  #      production}/ and export-files/ too. Those mirrors are the
+                  #      ONLY off-MinIO copy of real application data (see header:
+                  #      NOT to Backblaze) -- pruning them is DATA LOSS.
+                  # Only postgres-backups is pruned: it is a redundant third copy
+                  # (MinIO bucket + Backblaze B2 + this disk mirror) and the source
+                  # bucket is already pruned at the same 168h window.
+                  # `mc` is guaranteed present in this image and operates on local
+                  # filesystem paths directly, so it replaces `find` 1:1 here.
+                  if [ "${BACKUP_DEGRADED}" != "0" ]; then
+                    echo "[$(date)] FATAL: at least one bucket mirror failed." >&2
+                    echo "[$(date)] FATAL: retention SKIPPED - nothing deleted from ${PRUNE_DIR}." >&2
+                    exit 1
+                  fi
+
+                  if [ -d "${PRUNE_DIR}" ]; then
+                    echo "[$(date)] Pruning ${PRUNE_DIR} older than ${RETENTION} (postgres-backups mirror only)..."
+                    if ! mc rm --recursive --force --older-than "${RETENTION}" "${PRUNE_DIR}/"; then
+                      echo "[$(date)] FATAL: retention prune FAILED for ${PRUNE_DIR} - backup disk will fill up." >&2
+                      exit 1
+                    fi
+                    echo "[$(date)] Prune completed for ${PRUNE_DIR}"
+                  else
+                    echo "[$(date)] WARNING: ${PRUNE_DIR} does not exist - nothing to prune" >&2
+                  fi
+
                   # Show backup size
                   echo "[$(date)] Backup size:"
                   du -sh /backup/minio/
-                  
+
                   echo "[$(date)] MinIO backup to disk completed!"
               env:
                 - name: ENVIRONMENT

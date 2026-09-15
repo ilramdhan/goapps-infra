@@ -1,0 +1,75 @@
+# RBAC for the Grafana sqlite backup CronJob.
+#
+# NAMESPACE DECISION (read before moving this file):
+# The CronJob MUST live in namespace `monitoring`, the same namespace as the
+# Grafana pod it reads from. Two independent reasons:
+#
+#   1. `pods/exec` is a NAMESPACED subresource. A Role+RoleBinding can only
+#      grant it inside one namespace. Running the job from `database` (where
+#      the other backup CronJobs live) would require either a ClusterRole
+#      granting pods/exec cluster-wide -- exec into ANY pod in the cluster is
+#      effectively cluster-admin, since it includes every pod holding a
+#      mounted serviceaccount token -- or a RoleBinding in `monitoring` whose
+#      subject is a ServiceAccount in `database`. The latter is legal K8s, but
+#      see reason 2.
+#
+#   2. Kustomize's `namespace:` transformer REWRITES RoleBinding subject
+#      namespaces. `overlays/{staging,production}/backup/kustomization.yaml`
+#      both set `namespace: database`. Verified locally: a RoleBinding in
+#      `monitoring` whose subject is `ServiceAccount/database` is rewritten by
+#      that transformer so that BOTH the RoleBinding's own namespace AND the
+#      subject's namespace become `database` -- silently retargeting the grant
+#      at a Role that does not exist there. The binding would apply cleanly and
+#      the job would then fail with a confusing RBAC "forbidden" at 3 AM.
+#      Keeping every object in `monitoring` removes the cross-namespace subject
+#      entirely, so no transformer can mis-rewrite it.
+#
+# This is therefore deliberately NOT wired into base/backup/cronjobs/, which is
+# namespace-pinned to `database`. It ships as its own base + ArgoCD app.
+#
+# Scope is the narrowest that works: get/list pods (to find the Grafana pod by
+# label) and create pods/exec (to stream the file out) -- in ONE namespace, via
+# a Role, never a ClusterRole. No write verbs on anything.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-backup
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-backup
+    app.kubernetes.io/part-of: goapps-backup
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-backup
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-backup
+    app.kubernetes.io/part-of: goapps-backup
+rules:
+  # Locate the running Grafana pod by label selector.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # `kubectl exec` is a CREATE against the pods/exec subresource.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-backup
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-backup
+    app.kubernetes.io/part-of: goapps-backup
+subjects:
+  - kind: ServiceAccount
+    name: grafana-backup
+    namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grafana-backup

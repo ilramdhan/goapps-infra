@@ -109,7 +109,24 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
+                  # The old selector was `fstype!~"tmpfs|overlay"` on BOTH sides and
+                  # nothing else. It did not exclude the pseudo-filesystems that a VPS
+                  # reports with size == 0 (devtmpfs-adjacent mounts, nsfs, cgroup,
+                  # tracefs, ...). Those divide to +Inf/NaN, and a single NaN series
+                  # poisons the reduce step, so the rule sat in Error/odd state instead
+                  # of alerting -- which is how /dev/sdb1 on /goapps-backup reached 96%
+                  # (54G/59G) with no email while / sat quietly at 64%.
+                  # squashfs snap mounts are permanently 100% full by design and were
+                  # also matching, adding constant noise on top.
+                  # Fix: exclude pseudo/read-only-by-design filesystems and kubelet /
+                  # container bind mounts explicitly, and guard the denominator with
+                  # `> 0`. The filters are needed on the LEFT side only -- Prometheus
+                  # vector matching drops right-hand series with no matching left-hand
+                  # partner, so the denominator inherits the same set.
+                  # No mountpoint allowlist: every REAL mounted filesystem is covered,
+                  # including /goapps-backup (production) and /staging-goapps-backup
+                  # (staging), without either path being hardcoded.
+                  expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|devtmpfs|iso9660|autofs|nsfs|tracefs|debugfs|configfs|securityfs|selinuxfs|pstore|mqueue|hugetlbfs|cgroup|cgroup2|sysfs|proc|procfs|devpts|binfmt_misc|fuse.*|rpc_pipefs|nfsd", mountpoint!~"/(dev|proc|sys|run)($|/.*)|/var/lib/(kubelet|docker|rancher)/.*|/boot/efi"} / (node_filesystem_size_bytes > 0))) * 100 > 85
                   refId: A
               - refId: B
                 datasourceUid: __expr__
@@ -132,8 +149,8 @@ data:
             execErrState: Error
             for: 5m
             annotations:
-              summary: "Node disk usage is above 85%"
-              description: "Disk {{ $labels.device }} on {{ $labels.instance }} is almost full"
+              summary: "🔴 Disk {{ $labels.mountpoint }} is above 85% full"
+              description: "Filesystem {{ $labels.device }} mounted at {{ $labels.mountpoint }} on {{ $labels.instance }} is above 85% used. Backup disks (/goapps-backup, /staging-goapps-backup) are covered by this rule."
             labels:
               severity: critical
             isPaused: false
@@ -273,7 +290,22 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+                  # `unless on (namespace, pod, container)` with the SAME selector that
+                  # pod-crashloop uses makes the two rules mutually exclusive: a pod that
+                  # is currently in CrashLoopBackOff is reported once, by pod-crashloop
+                  # only. This rule now covers the churn crashloop does NOT catch --
+                  # restart cycles that keep recovering (liveness-probe kills, OOM kills
+                  # that come back up).
+                  # The `namespace!~"database"` lives on the RIGHT side on purpose: it
+                  # mirrors pod-crashloop exactly, so suppression applies only where
+                  # pod-crashloop actually fires. A crash-looping pod in `database` is
+                  # excluded by pod-crashloop and therefore still surfaces here instead
+                  # of falling into a coverage hole.
+                  # Threshold raised 3 -> 5 and `for` 1m -> 10m: an HPA scale-up or a
+                  # rollout can produce 3 restarts/hour benignly, while a genuine loop
+                  # is already reported by pod-crashloop (for: 2m) and pod-oomkilled
+                  # (for: 0s), so this rule can afford to be the slow, quiet one.
+                  expr: increase(kube_pod_container_status_restarts_total[1h]) > 5 unless on (namespace, pod, container) kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff", namespace!~"database"} > 0
                   refId: A
               - refId: B
                 datasourceUid: __expr__
@@ -294,10 +326,10 @@ data:
                   refId: C
             noDataState: OK
             execErrState: Error
-            for: 1m
+            for: 10m
             annotations:
               summary: "🟡 Pod {{ $labels.pod }} frequent restarts"
-              description: "Pod {{ $labels.pod }} has restarted more than 3 times in the last hour"
+              description: "Container {{ $labels.container }} in pod {{ $labels.pod }} has restarted more than 5 times in the last hour without being in CrashLoopBackOff. Crash loops are reported separately by Pod CrashLoopBackOff."
             labels:
               severity: warning
             isPaused: false
@@ -312,7 +344,24 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: sum(rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m])) by (namespace, pod) * 100 > 80
+                  # Utilization as a PERCENT OF THE POD'S CPU LIMIT, not raw cores.
+                  # The old expression was `sum(rate(...)) by (namespace,pod) * 100 > 80`,
+                  # which compares CORES*100 to 80 -- i.e. it fired at 0.8 cores regardless
+                  # of the limit (postgres-0 alerted at "80%" while using 43m of a 2000m
+                  # limit = 2%), and a 500m-limited pod pinned at a true 100% could only
+                  # ever reach 50 and never fired at all.
+                  # Both sides are pre-aggregated with `sum by (namespace, pod)`, so each
+                  # carries exactly {namespace, pod} and `on(namespace, pod)` is a clean
+                  # 1:1 match -- no group_left needed, and cAdvisor's extra labels (id,
+                  # image, instance, job) and KSM's (node, uid, container, unit) are all
+                  # collapsed away before the division.
+                  # Pods with NO cpu limit: kube-state-metrics emits no series for them,
+                  # so the division drops them and they NEVER alert here. That is
+                  # deliberate -- an unlimited pod cannot exceed a limit; node-high-cpu
+                  # is the backstop for those. Same for a pod where only some containers
+                  # set a limit: the pod-level limit is understated, so it alerts early
+                  # rather than late.
+                  expr: sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m])) / on (namespace, pod) sum by (namespace, pod) (kube_pod_container_resource_limits{resource="cpu", container!="", container!="POD"}) * 100 > 80
                   refId: A
               - refId: B
                 datasourceUid: __expr__
@@ -333,10 +382,10 @@ data:
                   refId: C
             noDataState: OK
             execErrState: Error
-            for: 5m
+            for: 10m
             annotations:
-              summary: "🟡 High CPU on Pod {{ $labels.pod }}"
-              description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} CPU usage is above 80%"
+              summary: "🟡 Pod {{ $labels.pod }} above 80% of its CPU limit"
+              description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has used more than 80% of its configured CPU limit for 10 minutes. Pods with no CPU limit are not covered by this rule."
             labels:
               severity: warning
             isPaused: false
@@ -568,6 +617,113 @@ data:
             annotations:
               summary: "🔴 PostgreSQL backup job FAILED"
               description: "A scheduled backup job has failed"
+            labels:
+              severity: critical
+            isPaused: false
+
+          # A dedicated rule rather than widening postgres-backup-failed's regex:
+          # every other rule in this file is one concern per uid with its own
+          # summary text, and that rule's title ("PostgreSQL Backup Failed") and
+          # uid are frozen -- renaming a uid orphans the rule in Grafana. Widening
+          # the regex would have emailed "PostgreSQL backup job FAILED" for a MinIO
+          # job.
+          # LIMITATION: the minio-backup-to-disk retention step swallows its own
+          # errors (`find ... -delete 2>/dev/null || true`), so the job exits 0 and
+          # kube_job_status_failed stays at 0 even while retention is broken. That
+          # is exactly how it filled a 59G disk to 96% unnoticed for ~7 months.
+          # This rule catches a HARD failure (mc mirror error, missing secret,
+          # unmounted hostPath); the real safety net for silent breakage is
+          # node-disk-full above, now that it actually covers /goapps-backup.
+          - uid: minio-backup-failed
+            title: MinIO Backup Failed
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 3600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: kube_job_status_failed{namespace="database",job_name=~"minio-backup-to-disk.*"} > 0
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                  refId: C
+            noDataState: OK
+            execErrState: Error
+            for: 5m
+            annotations:
+              summary: "🔴 MinIO backup job FAILED"
+              description: "MinIO backup job {{ $labels.job_name }} in namespace database has failed. Check bucket mirroring and the backup hostPath mount."
+            labels:
+              severity: critical
+            isPaused: false
+
+          # NOTE the namespace: grafana-db-backup runs in `monitoring`, not
+          # `database` like the two rules above. pods/exec is namespaced, so the
+          # job has to live where Grafana runs. Matching on namespace="database"
+          # here would silently never fire.
+          #
+          # This one is worth alerting on even though it is "only" a backup:
+          # grafana.db is the ONLY copy of the contact points, notification
+          # policy tree and UI-created dashboards. The alert email routing this
+          # whole ruleset depends on lives in that file. A backup gap here is
+          # invisible until the day the PVC is gone, which has already happened
+          # once (2026-07).
+          #
+          # Unlike minio-backup-to-disk, this job does NOT swallow its own
+          # errors: integrity_check, the non-empty table check and gzip -t all
+          # exit 1 before retention runs, so a torn or corrupt snapshot shows up
+          # as a real Job failure rather than a silent success.
+          - uid: grafana-db-backup-failed
+            title: Grafana DB Backup Failed
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 3600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: kube_job_status_failed{namespace="monitoring",job_name=~"grafana-db-backup.*"} > 0
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                  refId: C
+            noDataState: OK
+            execErrState: Error
+            for: 5m
+            annotations:
+              summary: "🔴 Grafana DB backup FAILED"
+              description: "Grafana backup job {{ $labels.job_name }} in namespace monitoring has failed. grafana.db holds the alert contact points, notification policies and UI dashboards -- it is the only copy. Check the job logs: a failure means either Grafana was unreachable (selector/pod down) or the snapshot failed its integrity check."
             labels:
               severity: critical
             isPaused: false

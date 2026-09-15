@@ -302,7 +302,7 @@ goapps-infra/
 │   │   ├── base/
 │   │   │   ├── deployment.yaml        # gRPC :50051, HTTP :8080, Metrics :8090
 │   │   │   ├── service.yaml
-│   │   │   ├── hpa.yaml               # min 1, max 5, 70% CPU
+│   │   │   ├── hpa.yaml               # min 1 (prod patches to 2), max 3, 70% CPU
 │   │   │   ├── ingress.yaml
 │   │   │   ├── migrate-job.yaml       # DB migration Job
 │   │   │   ├── seed-job.yaml          # Data seeder Job
@@ -687,7 +687,7 @@ services/<service-name>/
 │   ├── kustomization.yaml   # Lists all resources + commonLabels
 │   ├── deployment.yaml      # Container spec, ports, probes, base env vars
 │   ├── service.yaml         # ClusterIP service (gRPC, HTTP, metrics ports)
-│   ├── hpa.yaml             # HPA: min 1, max 5, 70% CPU, 80% memory
+│   ├── hpa.yaml             # HPA: min 1, max 3, 70% CPU (prod overlay patches min to 2)
 │   ├── ingress.yaml         # Ingress rules (host set via overlay patch)
 │   ├── migrate-job.yaml     # One-time DB migration Job (optional)
 │   ├── seed-job.yaml        # One-time data seed Job (optional)
@@ -1097,7 +1097,16 @@ mkdir -p services/${SERVICE_NAME}/{base,overlays/{staging,production}/patches}
 Create these files in `services/${SERVICE_NAME}/base/`:
 - `deployment.yaml` -- Container spec with gRPC/HTTP/metrics ports, probes, env vars, resource limits
 - `service.yaml` -- ClusterIP service exposing gRPC (50051), HTTP (8080), metrics (8090)
-- `hpa.yaml` -- HPA with min 1, max 5, CPU 70%, memory 80%
+- `hpa.yaml` -- HPA with min 1, max 3, CPU 70% (production overlay patches `minReplicas: 2`)
+
+> **Capacity check before choosing `maxReplicas`.** This is a SINGLE-NODE cluster
+> (~16Gi) shared with the `database`, `monitoring`, `observability` and `minio`
+> namespaces. Memory *limits* are already overcommitted well past 100%, and K8s
+> schedules on **requests** — so a fan-out that the scheduler cheerfully admits
+> can still OOM-kill the node, taking Grafana and Postgres down with it (incident
+> 2026-08-13). Multiply `maxReplicas x memory limit` and check it against the node
+> before merging, especially for queue-driven (external-metric) HPAs, which can
+> jump to max without any CPU signal.
 - `kustomization.yaml` -- Lists resources + commonLabels
 - `servicemonitor.yaml` -- Prometheus scrape config (optional)
 - `ingress.yaml` -- Ingress rules (optional, host set via overlay patch)
@@ -1259,7 +1268,7 @@ These are hard-won lessons from production operations:
 | Area | Lesson |
 |------|--------|
 | RabbitMQ | Needs minimum 500m CPU, 512Mi memory, 30s probe timeouts. Always add `startupProbe`. |
-| Frontend (Next.js) | Minimum 500m CPU limit or pod will cycle continuously. |
+| Frontend (Next.js) | Minimum 500m CPU limit or pod will cycle continuously. **500m is the failure floor, not a target** -- both overlays now set 750m. A CPU limit is a throttling ceiling, not a scheduler reservation, so headroom above the floor costs no node allocatable. |
 | Dirty migrations | Fix with `UPDATE schema_migrations_{service} SET dirty = false` in psql. |
 | Old K8s Jobs | Failed Jobs from old CronJob runs trigger Grafana backup alerts. Delete stale jobs manually. |
 | ArgoCD CLI | Requires port-forward first. Production has no CLI -- use the ArgoCD dashboard. |
@@ -1270,6 +1279,8 @@ These are hard-won lessons from production operations:
 | Backup CronJob env | Currently hardcoded to "production" label even in staging -- known bug. |
 | Pod Disruption Budgets | None defined -- needed for StatefulSets (PostgreSQL, RabbitMQ, MinIO) to survive node drains safely. |
 | Resource Quotas | No per-namespace ResourceQuota resources -- risk of one namespace exhausting cluster resources. |
+| Queue-driven HPA fan-out | `finance-cost-worker` scales on an **external** metric (RabbitMQ queue depth), so it can jump to `maxReplicas` with no CPU signal at all. At its old cap (base 50 / prod 20) x 768Mi it alone committed 15360Mi on a ~16Gi node. Memory **requests** for that fan-out are only ~5120Mi, so the scheduler admits every pod and the node OOM-kills instead -- which is how the 2026-08-13 incident took out Grafana in the `monitoring` namespace alongside the finance workers. Capped at prod 7 / staging 4. **Always multiply `maxReplicas x memory limit` against the node before merging an HPA.** |
+| Memory limits vs requests | Node-wide memory *limits* are overcommitted to ~154% even after the fan-out fix. This is tolerable only because requests stay near 33%; do not read a healthy `kubectl describe node` requests figure as proof there is room. |
 | ~~PostgreSQL ServiceMonitor~~ | **Resolved — this gap no longer exists.** `base/database/exporter/deployment.yaml` ships a `ServiceMonitor` named `postgres-exporter` (namespace `monitoring`, `namespaceSelector: database`, port `metrics`, interval 30s) alongside the Deployment and Service. |
 | App service accounts | Workloads run under the default K8s service account -- no dedicated RBAC service accounts per app. |
 | Backup path targeting (understated before) | Not merely a doc typo. The **effective** paths come from `overlays/{staging,production}/backup/kustomization.yaml`, which patch `hostPath` to `/staging-goapps-backup/postgres` and `/goapps-backup/postgres`. The **base** (`base/backup/cronjobs/postgres-backup.yaml:210,312,414`, `minio-backup.yaml:88`) still says `/mnt/goapps-backup` -- applying base **without** an overlay writes to a path that is not the mounted backup disk. `scripts/bootstrap.sh:82-84` also still mounts at `/mnt/goapps-backup` / `/mnt/stgapps-backup`, so a **newly bootstrapped host would reproduce the mismatch** even though the two existing hosts were fixed by hand. |

@@ -1,0 +1,170 @@
+# Grafana sqlite (grafana.db) Backup CronJob
+# Schedule: daily 02:30 Asia/Jakarta (before the 03:00 minio-backup-to-disk)
+# Retention: 7 days local disk, 7 days MinIO
+#
+# WHY THIS EXISTS
+# grafana.db holds the ONLY copy of: contact points, notification policies,
+# UI-created dashboards, users, API keys, org settings, and alert/annotation
+# history. base/backup/cronjobs/ covers postgres and MinIO only. This cluster
+# has already lost Grafana UI state twice -- see
+# docs/runbooks/monitoring-alerting-activation-2026-07.md and
+# docs/runbooks/grafana-503-datasource-provisioning-crash.md.
+#
+# ===========================================================================
+# WHY THIS CANNOT DISRUPT THE RUNNING GRAFANA
+# ===========================================================================
+# The `prometheus-grafana` PVC is RWO on local-path, and the live Grafana pod
+# holds the mount. This job NEVER references that PVC. Specifically:
+#
+#   * No `persistentVolumeClaim` volume anywhere in this manifest. A second
+#     pod claiming an RWO local-path PVC is the exact failure mode recorded in
+#     monitoring-alerting-activation-2026-07.md, where the chart's default
+#     RollingUpdate started a second pod against the same PVC, sqlite locked,
+#     the new pod CrashLoopBackOff'd, and `helm upgrade --wait` deadlocked.
+#     Even when a co-scheduled pod does mount successfully, it makes the PVC a
+#     scheduling constraint shared with Grafana -- if this job's pod is ever
+#     Pending, it can block Grafana from being rescheduled. We avoid all of it.
+#
+#   * The only interaction is `kubectl exec ... -- cat /var/lib/grafana/grafana.db`,
+#     a READ of an already-open file through the pod's existing filesystem.
+#     `cat` takes no sqlite lock, opens nothing for write, and starts no
+#     second sqlite connection. Grafana cannot block on it, and it cannot
+#     block Grafana's scheduling, restart, or upgrade.
+#
+#   * If Grafana is down, `kubectl get pods --field-selector=status.phase=Running`
+#     matches nothing, and the job exits 1 loudly rather than degrading Grafana.
+#
+# The tradeoff, stated honestly: `cat` of a live sqlite file CAN produce a torn
+# page set. That is handled by verification rather than locking -- see the
+# consistency notes in the script. We would rather reject a torn snapshot
+# noisily than risk one second of Grafana downtime to get a locked one.
+#
+# ===========================================================================
+# IMAGE CHOICE -- and why its commands are known to exist
+# ===========================================================================
+# Main container: alpine/k8s:1.33.13
+#   Needs BOTH `kubectl` (to exec into Grafana) and a POSIX shell. Verified by
+#   running the image: it is Alpine-based and provides sh, kubectl, tar, gzip,
+#   cp, date, wc, find, du, and apk.
+#   Explicitly rejected: rancher/kubectl -- distroless, has NO shell at all
+#   (`exec: "sh": executable file not found`), so the script could not run.
+#
+# sqlite3: NOT in alpine/k8s, and NOT in grafana/grafana either (verified --
+#   this is also why grafana-503-datasource-provisioning-crash.md says you must
+#   copy the DB out to inspect it). It is supplied by an initContainer that
+#   copies the static sqlite3 binary out of keinos/sqlite3 into a shared
+#   emptyDir -- the same copy-a-binary-via-initContainer pattern the postgres
+#   backup already uses for `mc`. Verified end to end: the binary is static
+#   (`ldd` reports "Not a valid dynamic program") and executes correctly inside
+#   alpine/k8s. This is preferred over `apk add sqlite` at runtime, which would
+#   make every 02:30 run depend on the Alpine CDN being reachable.
+#
+# `find` IS used for local retention here, which minio-backup.yaml deliberately
+# avoids. That is safe ONLY because this container is Alpine (busybox find,
+# verified present). The minio incident was caused by minio/mc being UBI-micro
+# with no find, and the failure being hidden by `2>/dev/null || true`. Neither
+# applies here, and no error is suppressed.
+#
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grafana-db-backup
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-backup
+    app.kubernetes.io/part-of: goapps-backup
+spec:
+  schedule: "30 2 * * *"
+  timeZone: "Asia/Jakarta"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: grafana-backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: grafana-backup
+          initContainers:
+            # Same pattern as the `copy-mc` initContainer in
+            # base/backup/cronjobs/postgres-backup.yaml: pull a binary out of
+            # an image that has it, into a shared emptyDir.
+            - name: copy-sqlite3
+              image: keinos/sqlite3:latest
+              imagePullPolicy: IfNotPresent
+              command: ["cp", "/usr/bin/sqlite3", "/tools/sqlite3"]
+              volumeMounts:
+                - name: shared-tools
+                  mountPath: /tools
+          containers:
+            - name: grafana-backup
+              image: alpine/k8s:1.33.13
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  cp /tools/sqlite3 /usr/local/bin/sqlite3
+                  chmod +x /usr/local/bin/sqlite3
+                  /scripts/backup-grafana.sh
+              env:
+                # NOTE: env ordering here is local to this new file only. The
+                # JSON6902 numeric-index patches in overlays/*/backup (e.g.
+                # /env/5/value) target minio-backup.yaml and are untouched.
+                - name: ENVIRONMENT
+                  value: "base"        # Overridden by staging/production overlays
+                - name: GRAFANA_NAMESPACE
+                  value: "monitoring"
+                - name: GRAFANA_SELECTOR
+                  value: "app.kubernetes.io/name=grafana"
+                - name: GRAFANA_CONTAINER
+                  value: "grafana"
+                - name: GRAFANA_DB_PATH
+                  value: "/var/lib/grafana/grafana.db"
+                - name: RETENTION_DAYS
+                  value: "7"
+                - name: MINIO_ENDPOINT
+                  value: "minio.minio:9000"
+                - name: MINIO_USE_SSL
+                  value: "true"
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-secret
+                      key: MINIO_ROOT_USER
+                      optional: true
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-secret
+                      key: MINIO_ROOT_PASSWORD
+                      optional: true
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+                - name: backup-scripts
+                  mountPath: /scripts
+                - name: shared-tools
+                  mountPath: /tools
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+          volumes:
+            # hostPath, NOT the Grafana PVC. Same disk the other backups use.
+            - name: backup-storage
+              hostPath:
+                path: /goapps-backup
+                type: DirectoryOrCreate
+            - name: backup-scripts
+              configMap:
+                name: grafana-backup-scripts
+                defaultMode: 0755
+            - name: shared-tools
+              emptyDir: {}

@@ -1,3 +1,14 @@
+# CPU limit 750m — same reasoning as production, applied here on purpose rather
+# than copied. CLAUDE.md §17's "minimum 500m CPU limit or the pod will cycle
+# continuously" describes a Next.js startup/SSR characteristic, not a
+# production-load characteristic, so the floor is identical on both nodes and
+# staging was equally pinned to it.
+#
+# Staging normally takes smaller numbers than production, but a CPU *limit* is a
+# throttling ceiling, not a reservation — it consumes no node allocatable, so
+# shaving it buys nothing and only reintroduces the restart loop during the
+# staging soak that is supposed to catch exactly this. Memory (the genuinely
+# scarce resource on the 8GB node) stays at staging levels, unchanged.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,4 +24,4 @@ spec:
               cpu: "100m"
             limits:
               memory: "512Mi"
-              cpu: "500m"
+              cpu: "750m"

@@ -1,0 +1,35 @@
+# ArgoCD Application - Grafana sqlite Backup (Staging)
+#
+# Separate from infra-backup because every object must stay in namespace
+# `monitoring` (pods/exec is namespaced -- see
+# base/monitoring/grafana-backup/rbac.yaml). infra-backup is pinned to
+# `database` by its overlay, which would relocate these objects and break the
+# RoleBinding.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: infra-grafana-backup
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: goapps
+  source:
+    repoURL: https://github.com/mutugading/goapps-infra.git
+    targetRevision: main
+    path: overlays/staging/grafana-backup
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

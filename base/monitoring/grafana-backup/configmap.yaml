@@ -1,0 +1,192 @@
+# Backup script for grafana.db, mounted into the grafana-db-backup CronJob.
+#
+# Structure deliberately mirrors the backup.sh ConfigMap in
+# base/backup/cronjobs/postgres-backup.yaml:
+#   set -Eeuo pipefail -> verify BEFORE storing -> BACKUP_DEGRADED gate ->
+#   ALL deletion last, never reached if anything above failed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-backup-scripts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-backup
+    app.kubernetes.io/part-of: goapps-backup
+data:
+  backup-grafana.sh: |
+    #!/bin/sh
+    set -Eeuo pipefail
+    
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    ENVIRONMENT="${ENVIRONMENT:-production}"
+    GRAFANA_NAMESPACE="${GRAFANA_NAMESPACE:-monitoring}"
+    GRAFANA_SELECTOR="${GRAFANA_SELECTOR:-app.kubernetes.io/name=grafana}"
+    GRAFANA_CONTAINER="${GRAFANA_CONTAINER:-grafana}"
+    GRAFANA_DB_PATH="${GRAFANA_DB_PATH:-/var/lib/grafana/grafana.db}"
+    
+    BACKUP_DIR="/backup/grafana"
+    RAW_DB="/tmp/grafana_${TIMESTAMP}.db"
+    OUT_FILE="${BACKUP_DIR}/${ENVIRONMENT}_grafana_${TIMESTAMP}.db.gz"
+    
+    RETENTION_DAYS="${RETENTION_DAYS:-7}"
+    MIN_DB_BYTES="${MIN_DB_BYTES:-65536}"
+    
+    BACKUP_DEGRADED=0
+    
+    mkdir -p "${BACKUP_DIR}"
+    
+    echo "[$(date)] Starting Grafana sqlite backup (env=${ENVIRONMENT})..."
+    
+    # --- 1. Locate the running Grafana pod -------------------------------------
+    GRAFANA_POD=$(kubectl get pods -n "${GRAFANA_NAMESPACE}" \
+      -l "${GRAFANA_SELECTOR}" \
+      --field-selector=status.phase=Running \
+      -o jsonpath='{.items[0].metadata.name}')
+    
+    if [ -z "${GRAFANA_POD}" ]; then
+      echo "[$(date)] FATAL: no Running Grafana pod matched selector '${GRAFANA_SELECTOR}' in ns ${GRAFANA_NAMESPACE}." >&2
+      echo "[$(date)] FATAL: nothing copied, nothing pruned." >&2
+      exit 1
+    fi
+    echo "[$(date)] Found Grafana pod: ${GRAFANA_POD}"
+    
+    # --- 2. Stream a CONSISTENT snapshot out of the pod -------------------------
+    # Consistency: `cat`-ing a live sqlite file can yield a torn page set. Grafana's
+    # own image ships NO sqlite3 binary (verified), so `.backup`/`VACUUM INTO`
+    # cannot be run INSIDE the pod. Instead we stream the raw bytes out and repair
+    # consistency on THIS side, where sqlite3 does exist:
+    #   - `cat` inside the pod is read-only. It cannot lock, block, or modify
+    #     anything Grafana is doing. Worst case it yields a torn copy, which
+    #     step 3 then DETECTS and rejects.
+    #   - step 3 runs `PRAGMA integrity_check` + a real table read. A torn snapshot
+    #     fails there and the job exits non-zero WITHOUT pruning anything.
+    # We deliberately do NOT mount the PVC (see header of cronjob.yaml).
+    echo "[$(date)] Streaming ${GRAFANA_DB_PATH} out of ${GRAFANA_POD}..."
+    if ! kubectl exec -n "${GRAFANA_NAMESPACE}" "${GRAFANA_POD}" -c "${GRAFANA_CONTAINER}" \
+         -- cat "${GRAFANA_DB_PATH}" > "${RAW_DB}"; then
+      echo "[$(date)] FATAL: kubectl exec/cat of ${GRAFANA_DB_PATH} failed." >&2
+      rm -f "${RAW_DB}"
+      exit 1
+    fi
+    
+    RAW_SIZE=$(wc -c < "${RAW_DB}" | tr -d ' ')
+    echo "[$(date)] Raw snapshot: ${RAW_SIZE} bytes"
+    if [ "${RAW_SIZE}" -lt "${MIN_DB_BYTES}" ]; then
+      echo "[$(date)] FATAL: snapshot is ${RAW_SIZE} bytes, below MIN_DB_BYTES=${MIN_DB_BYTES} - truncated or empty." >&2
+      rm -f "${RAW_DB}"
+      exit 1
+    fi
+    
+    # --- 3. Verify + normalise via VACUUM INTO ---------------------------------
+    # integrity_check proves the page structure is sound. VACUUM INTO then writes a
+    # freshly-serialised, defragmented database, which also collapses any stale WAL
+    # state into a single self-contained file.
+    echo "[$(date)] Running integrity_check on snapshot..."
+    INTEGRITY=$(sqlite3 "${RAW_DB}" 'PRAGMA integrity_check;' || echo "FAILED_TO_RUN")
+    if [ "${INTEGRITY}" != "ok" ]; then
+      echo "[$(date)] FATAL: integrity_check returned '${INTEGRITY}' - TORN/CORRUPT snapshot, refusing to store it." >&2
+      echo "[$(date)] FATAL: no old backup deleted." >&2
+      rm -f "${RAW_DB}"
+      exit 1
+    fi
+    echo "[$(date)] integrity_check: ok"
+    
+    # Prove it is really a Grafana DB and not a valid-but-empty sqlite file. These
+    # are the exact tables holding the state this backup exists to protect.
+    for tbl in dashboard data_source alert_configuration; do
+      if ! sqlite3 "${RAW_DB}" "SELECT count(*) FROM ${tbl};" >/dev/null 2>&1; then
+        echo "[$(date)] FATAL: expected table '${tbl}' is unreadable - not a valid Grafana DB." >&2
+        rm -f "${RAW_DB}"
+        exit 1
+      fi
+    done
+    DASH_COUNT=$(sqlite3 "${RAW_DB}" 'SELECT count(*) FROM dashboard;')
+    DS_COUNT=$(sqlite3 "${RAW_DB}" 'SELECT count(*) FROM data_source;')
+    echo "[$(date)] Content check: ${DASH_COUNT} dashboards, ${DS_COUNT} datasources"
+    
+    CLEAN_DB="/tmp/grafana_clean_${TIMESTAMP}.db"
+    if ! sqlite3 "${RAW_DB}" "VACUUM INTO '${CLEAN_DB}'"; then
+      echo "[$(date)] FATAL: VACUUM INTO failed." >&2
+      rm -f "${RAW_DB}" "${CLEAN_DB}"
+      exit 1
+    fi
+    
+    CLEAN_INTEGRITY=$(sqlite3 "${CLEAN_DB}" 'PRAGMA integrity_check;' || echo "FAILED_TO_RUN")
+    if [ "${CLEAN_INTEGRITY}" != "ok" ]; then
+      echo "[$(date)] FATAL: vacuumed copy failed integrity_check ('${CLEAN_INTEGRITY}')." >&2
+      rm -f "${RAW_DB}" "${CLEAN_DB}"
+      exit 1
+    fi
+    
+    gzip -c "${CLEAN_DB}" > "${OUT_FILE}"
+    if ! gzip -t "${OUT_FILE}"; then
+      echo "[$(date)] FATAL: ${OUT_FILE} failed gzip integrity check." >&2
+      rm -f "${RAW_DB}" "${CLEAN_DB}" "${OUT_FILE}"
+      exit 1
+    fi
+    rm -f "${RAW_DB}" "${CLEAN_DB}"
+    
+    OUT_SIZE=$(wc -c < "${OUT_FILE}" | tr -d ' ')
+    echo "[$(date)] VERIFY OK: ${OUT_FILE} (${OUT_SIZE} bytes gzipped, integrity ok, ${DASH_COUNT} dashboards)"
+    
+    # --- 4. Upload to MinIO (optional, mirrors postgres-backup.sh) --------------
+    MINIO_ENDPOINT="${MINIO_ENDPOINT:-}"
+    MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
+    MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-}"
+    MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-}"
+    
+    MC_OPTS=""
+    if [ "${MINIO_USE_SSL}" = "true" ]; then
+      MC_OPTS="--insecure"
+    fi
+    
+    if [ -n "${MINIO_ENDPOINT}" ] && [ -n "${MINIO_ACCESS_KEY}" ]; then
+      echo "[$(date)] Uploading to MinIO..."
+      if [ "${MINIO_USE_SSL}" = "true" ]; then
+        mc alias set minio "https://${MINIO_ENDPOINT}" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --api S3v4 --insecure
+      else
+        mc alias set minio "http://${MINIO_ENDPOINT}" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --api S3v4
+      fi
+      if mc cp "${OUT_FILE}" minio/grafana-backups/ ${MC_OPTS}; then
+        echo "[$(date)] Uploaded to MinIO"
+      else
+        echo "[$(date)] WARNING: MinIO upload failed - local copy on disk is intact" >&2
+        BACKUP_DEGRADED=1
+      fi
+    else
+      echo "[$(date)] MinIO upload skipped (no endpoint/credentials configured)"
+    fi
+    
+    # --- 5. RETENTION ----------------------------------------------------------
+    # Everything that DELETES lives here, after verification, and is gated on
+    # BACKUP_DEGRADED -- same ordering rule as postgres-backup.yaml and
+    # minio-backup.yaml. A failed run must never be the reason a healthy older
+    # backup disappears.
+    #
+    # `find` IS used here, unlike in minio-backup.yaml. That is safe because this
+    # container is Alpine-based (alpine/k8s), where find is busybox-provided and
+    # verified present -- NOT the UBI-micro minio/mc image that silently lacked it
+    # for ~7 months. No `2>/dev/null`, no `|| true`: a prune that cannot run is a
+    # hard failure, because that is precisely how the 59G disk filled unnoticed.
+    if [ "${BACKUP_DEGRADED}" != "0" ]; then
+      echo "[$(date)] FATAL: backup degraded (upload failed)." >&2
+      echo "[$(date)] FATAL: retention SKIPPED - no old backup deleted." >&2
+      exit 1
+    fi
+    
+    echo "[$(date)] Pruning ${BACKUP_DIR} older than ${RETENTION_DAYS} days..."
+    if ! find "${BACKUP_DIR}" -name '*.db.gz' -type f -mtime "+${RETENTION_DAYS}" -delete; then
+      echo "[$(date)] FATAL: local retention prune FAILED - backup disk will fill up." >&2
+      exit 1
+    fi
+    
+    REMAINING=$(find "${BACKUP_DIR}" -name '*.db.gz' -type f | wc -l | tr -d ' ')
+    echo "[$(date)] Prune completed. ${REMAINING} backup(s) retained in ${BACKUP_DIR}"
+    
+    if [ -n "${MINIO_ENDPOINT}" ] && [ -n "${MINIO_ACCESS_KEY}" ]; then
+      echo "[$(date)] Pruning MinIO grafana-backups older than 168h..."
+      mc rm --recursive --force --older-than 168h0m0s minio/grafana-backups/ ${MC_OPTS} \
+        || echo "[$(date)] WARNING: MinIO retention prune failed" >&2
+    fi
+    
+    echo "[$(date)] Grafana backup completed successfully!"
