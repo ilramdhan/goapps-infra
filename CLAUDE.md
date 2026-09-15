@@ -600,13 +600,11 @@ Name the endpoint after an **existing** ServicePort. A service whose gateway ser
 
 ### `base/monitoring/` IS OUTSIDE GITOPS -- apply it by hand, on BOTH hosts
 
-**No ArgoCD Application manages `base/monitoring`.** `argocd/apps/shared/infra-apps.yaml` covers only `base/database` and `base/observability/jaeger`; no workflow applies the directory either:
+**Almost none of `base/monitoring` is managed by ArgoCD.** `argocd/apps/shared/infra-apps.yaml` covers only `base/database` and `base/observability/jaeger`, and no workflow applies the directory.
 
-```bash
-grep -rn "base/monitoring" argocd/     # returns nothing
-```
+The **one** exception, added 2026-09-15: `argocd/apps/{staging,production}/infra-grafana-backup.yaml` point at `overlays/{staging,production}/grafana-backup`, which pulls in `base/monitoring/grafana-backup/`. That subdirectory alone has `selfHeal: true` and *is* reconciled. It was carved out deliberately -- it contains only a CronJob and its RBAC, no Grafana state, so a sync can never overwrite dashboards or alert config. Note those two Applications are not applied by anything either; they were `kubectl apply -f`'d by hand once per cluster.
 
-So dashboards and alert rules reach a cluster **only** via a manual `kubectl apply`, and "sync the Application" is not a fix — there is no Application to sync. What runs in the cluster is a snapshot of whoever last applied it, which is why `ppc-service` was missing from the dashboard filter for weeks while being correct in git.
+Everything else under `base/monitoring/` -- **dashboards, alert rules, helm values** -- still reaches a cluster **only** via a manual `kubectl apply`, and "sync the Application" is not a fix — there is no Application to sync. What runs in the cluster is a snapshot of whoever last applied it, which is why `ppc-service` was missing from the dashboard filter for weeks while being correct in git.
 
 Staging and production are **separate clusters** — run the apply on both hosts:
 
@@ -620,6 +618,16 @@ Two consequences worth internalizing:
 
 - **No `selfHeal`.** An in-cluster edit is never reverted from git, and a git change is never auto-applied. Permanent drift risk — but also why the Grafana alert config has never been silently overwritten by a sync.
 - Applying a **single dashboard ConfigMap** is safe (one resource, one data key, in-place update, no `--prune`, not `-k`). What is *not* safe, and must never be done casually, is `kubectl apply -k base/monitoring/alert-rules/`, any `delete`, or regenerating these files from a Grafana export.
+
+**If you must run `apply -k base/monitoring/alert-rules/`** (done 2026-09-15 to ship `grafana-db-backup-failed`), it is survivable but verify, do not assume:
+
+```bash
+kubectl apply -k base/monitoring/alert-rules            # expect "configured", never "created"
+GPOD=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].metadata.name}')
+kubectl logs -n monitoring "$GPOD" -c grafana-sc-alerts --tail=30 | grep -i "complete-alert\|error"
+```
+
+The `grafana-sc-alerts` sidecar rewrites `/etc/grafana/provisioning/alerting/` within ~1 min. **No `helm upgrade`, no pod restart, no PVC touch** — which is exactly why this path is safe and the Helm route is not. A `created` instead of `configured` means you are on the wrong cluster or the ConfigMap was deleted: stop.
 
 ### Dashboard service filter is a HARDCODED list -- add every new service by hand
 
