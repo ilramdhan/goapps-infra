@@ -13,4 +13,4 @@ patches:
 - path: patches/env-email.yaml
 images:
 - name: ghcr.io/mutugading/iam-service
-  newTag: 5de512c
+  newTag: 2f43f2f
