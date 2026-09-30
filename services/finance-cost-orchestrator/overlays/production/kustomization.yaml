@@ -8,4 +8,4 @@ patches:
 - path: patches/resources.yaml
 images:
 - name: ghcr.io/mutugading/finance-cost-orchestrator
-  newTag: 5de512c
+  newTag: 2f43f2f
