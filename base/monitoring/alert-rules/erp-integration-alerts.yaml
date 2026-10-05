@@ -1,0 +1,194 @@
+# ERP cost integration alerts (plan-06 P5-T8; design Part 3 §15).
+# Provisioned as Grafana-managed alert rules (same pattern as cost-calc-alerts.yaml),
+# loaded by the Grafana sidecar via the `grafana_alert: "1"` label.
+#
+# NOTE: the plan calls for a "PrometheusRule". This repo provisions alerting through
+# Grafana unified alerting, not PrometheusRule CRDs, so the rules are authored in the
+# Grafana provisioning format; the PromQL is what a PrometheusRule would use.
+#
+# Metric sources (finance-service /metrics):
+#   erp_oracle_call_log_rows{key,status}            PG-sampled gauge (ErpStatsSampler)
+#   erp_oracle_call_started_oldest_age_seconds      PG-sampled gauge
+#   erp_valuation_preview_stale_open{operation}     PG-sampled gauge
+#   erp_oracle_reader_rejected_total{reason}        counter (read-only guard)
+# The PG-sampled gauges are identical on every replica, hence max() not sum().
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-integration-alerts
+  namespace: monitoring
+  labels:
+    grafana_alert: "1"
+data:
+  erp-integration-alerts.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: ERP Integration Alerts
+        folder: Finance
+        interval: 1m
+        rules:
+          - uid: erp-oracle-call-unknown
+            title: ERP Oracle Call UNKNOWN Outcome
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 900
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # New UNKNOWN rows in the PG call log (sampled gauge, scraped from finance-service),
+                  # or a call stuck in STARTED for more than 15 minutes (outcome cannot be known).
+                  expr: '(max(erp_oracle_call_log_rows{status="UNKNOWN"}) - max(erp_oracle_call_log_rows{status="UNKNOWN"} offset 15m)) > 0 or max(erp_oracle_call_started_oldest_age_seconds) > 900'
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 15m
+            annotations:
+              summary: An ERP Oracle write call has an UNKNOWN outcome
+              description: An ERP Oracle write call ended UNKNOWN or has been STARTED for over 15 minutes. Resolve it by reconciliation (read-only probe); never re-push the batch. Check cst_erp_oracle_call_log.
+            labels:
+              severity: critical
+            isPaused: false
+
+          - uid: erp-oracle-call-failed
+            title: ERP Oracle Write Failed
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 900
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # New FAILED rows in the PG call log within 15 minutes.
+                  expr: '(max(erp_oracle_call_log_rows{status="FAILED"}) - max(erp_oracle_call_log_rows{status="FAILED"} offset 15m)) > 0'
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 0m
+            annotations:
+              summary: An ERP Oracle write call FAILED
+              description: An ERP Oracle write (W1 push or W2 package call) FAILED. Check cst_erp_oracle_call_log for the ORA code and the batch status.
+            labels:
+              severity: warning
+            isPaused: false
+
+          - uid: erp-valuation-preview-stale-open
+            title: ERP Valuation Preview Stale OPEN
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 900
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # A valuation/approve/restore preview stayed OPEN past its TTL (cevp_expires_at).
+                  expr: 'sum(max by (operation) (erp_valuation_preview_stale_open)) > 0'
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 15m
+            annotations:
+              summary: An ERP valuation preview is OPEN past its TTL
+              description: A cst_erp_valuation_preview row is still OPEN after cevp_expires_at. It can no longer be executed; the operator should re-preview or let it expire.
+            labels:
+              severity: info
+            isPaused: false
+
+          - uid: erp-oracle-reader-rejected
+            title: ERP Oracle Read-Only Guard Rejection
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # Security: the read-only guard refused a non-SELECT statement.
+                  expr: 'sum(increase(erp_oracle_reader_rejected_total[5m])) > 0'
+                  refId: A
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  refId: C
+                  type: classic_conditions
+            noDataState: OK
+            execErrState: Error
+            for: 0m
+            annotations:
+              summary: The ERP Oracle read-only guard rejected a statement
+              description: A non-SELECT statement reached the ERP Oracle read-only connection and was refused. Investigate the caller immediately.
+            labels:
+              severity: critical
+            isPaused: false
