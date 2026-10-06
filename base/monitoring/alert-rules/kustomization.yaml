@@ -6,3 +6,4 @@ resources:
   - grafana-alertrules-configmap.yaml
   - postgres-alerts.yaml
   - cost-calc-alerts.yaml
+  - erp-integration-alerts.yaml

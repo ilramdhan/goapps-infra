@@ -1,0 +1,398 @@
+# Grafana dashboard ConfigMap for the ERP cost integration (Oracle calls, batches, previews).
+# Auto-loaded by the Grafana sidecar via the `grafana_dashboard: "1"` label.
+# The embedded JSON mirrors erp-integration.json in this directory.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-erp-integration
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  erp-integration.json: |
+    {
+        "annotations": {
+            "list": []
+        },
+        "description": "ERP cost integration - Oracle calls, batches, previews",
+        "editable": true,
+        "fiscalYearStartMonth": 0,
+        "graphTooltip": 0,
+        "id": null,
+        "links": [],
+        "liveNow": false,
+        "panels": [
+            {
+                "id": 1,
+                "title": "Oracle calls rate by key/status",
+                "type": "timeseries",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 0,
+                    "y": 0,
+                    "w": 12,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        },
+                        "unit": "ops"
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "sum by (key,status)(rate(erp_oracle_calls_total[5m]))",
+                        "legendFormat": "{{key}} {{status}}",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 2,
+                "title": "Failures by ORA code",
+                "type": "timeseries",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 12,
+                    "y": 0,
+                    "w": 12,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        },
+                        "unit": "ops"
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "sum by (key,ora_code)(rate(erp_oracle_calls_total{status=\"FAILED\"}[5m]))",
+                        "legendFormat": "{{key}} {{ora_code}}",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 3,
+                "title": "p95 call duration by key",
+                "type": "timeseries",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 0,
+                    "y": 8,
+                    "w": 12,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        },
+                        "unit": "s"
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "histogram_quantile(0.95, sum by (le,key)(rate(erp_oracle_call_duration_seconds_bucket[5m])))",
+                        "legendFormat": "{{key}}",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 4,
+                "title": "UNKNOWN outcomes (1h)",
+                "type": "stat",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 12,
+                    "y": 8,
+                    "w": 6,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "orange",
+                                    "value": 1
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 5
+                                }
+                            ]
+                        }
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "sum by (key)(increase(erp_unknown_outcome_total[1h]))",
+                        "legendFormat": "{{key}}",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 5,
+                "title": "Batches by status/mode",
+                "type": "bargauge",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 18,
+                    "y": 8,
+                    "w": 6,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        }
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "sum by (status,mode)(erp_batch_status)",
+                        "legendFormat": "{{status}} / {{mode}}",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 6,
+                "title": "Call-log rows by status",
+                "type": "timeseries",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 0,
+                    "y": 16,
+                    "w": 12,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        }
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "sum by (key,status)(erp_oracle_call_log_rows)",
+                        "legendFormat": "{{key}} {{status}}",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 7,
+                "title": "Oldest STARTED call age",
+                "type": "stat",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 12,
+                    "y": 16,
+                    "w": 6,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "unit": "s",
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "orange",
+                                    "value": 900
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 1800
+                                }
+                            ]
+                        }
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "max(erp_oracle_call_started_oldest_age_seconds)",
+                        "legendFormat": "oldest",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 8,
+                "title": "Stale open previews / oldest age",
+                "type": "timeseries",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 18,
+                    "y": 16,
+                    "w": 6,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        }
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "sum by (operation)(erp_valuation_preview_stale_open)",
+                        "legendFormat": "stale {{operation}}",
+                        "refId": "A"
+                    },
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "max(erp_valuation_preview_open_oldest_age_seconds)",
+                        "legendFormat": "oldest age (s)",
+                        "refId": "B"
+                    }
+                ]
+            },
+            {
+                "id": 9,
+                "title": "Metrics sampler errors",
+                "type": "timeseries",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                },
+                "gridPos": {
+                    "x": 0,
+                    "y": 24,
+                    "w": 12,
+                    "h": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "palette-classic"
+                        }
+                    },
+                    "overrides": []
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                        },
+                        "expr": "rate(erp_metrics_sample_errors_total[5m])",
+                        "legendFormat": "errors/s",
+                        "refId": "A"
+                    }
+                ]
+            }
+        ],
+        "refresh": "30s",
+        "schemaVersion": 39,
+        "tags": [
+            "go-apps",
+            "finance",
+            "erp-integration"
+        ],
+        "templating": {
+            "list": []
+        },
+        "time": {
+            "from": "now-6h",
+            "to": "now"
+        },
+        "timepicker": {},
+        "timezone": "browser",
+        "title": "ERP Cost Integration",
+        "uid": "erp-cost-integration",
+        "version": 1
+    }

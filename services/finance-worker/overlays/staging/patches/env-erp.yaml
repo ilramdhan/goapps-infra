@@ -1,0 +1,32 @@
+# ERP cost integration (P0-T16) — feature flags, all OFF.
+# ERP_WRITER_MODE: disabled | fake | oracle. staging = "fake".
+#   staging uses "fake" until M-ERP-1..3 are deployed on the ERP side;
+#   production stays "disabled". The Oracle writer secret (oracle-if-credentials,
+#   GOAPPS_IF user) is NOT referenced here — it is added in P8-T4.
+# Enabling any flag is a reviewed infra PR per environment (design §11.3, AC-14).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: finance-worker
+          env:
+            - name: ERP_WRITER_MODE
+              value: "fake"
+            - name: ERP_PUSH_ENABLED
+              value: "false"
+            - name: ERP_VALUATION_ENABLED
+              value: "false"
+            - name: ERP_ADJ_APPROVE_ENABLED
+              value: "false"
+            # P5-T11 (U-2): monthly read/compute auto-run master switch, OFF.
+            # The schedule itself lives in cst_erp_integration_setting (admin
+            # UI, audited) or ERP_SCHEDULE_CRON / ERP_RUN_DAY_OF_MONTH. The
+            # scheduled run never pushes, valuates, approves or restores.
+            - name: ERP_SCHEDULE_ENABLED
+              value: "false"
+            - name: ERP_SCHEDULE_TZ
+              value: "Asia/Jakarta"

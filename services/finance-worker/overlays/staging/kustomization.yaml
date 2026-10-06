@@ -7,6 +7,7 @@ patches:
 - path: patches/env-database.yaml
 - path: patches/resources.yaml
 - path: patches/env-iam-storage.yaml
+- path: patches/env-erp.yaml
 images:
 - name: ghcr.io/mutugading/finance-service
   newTag: d41759c
