@@ -4,7 +4,7 @@ kind: Kustomization
 # Staging Environment Backup Overlay
 # Backup paths:
 #   - PostgreSQL: /staging-goapps-backup/postgres
-#   - MinIO: /staging-goapps-backup/minio
+#   - MinIO: /staging-goapps-backup/minio (app buckets only, not postgres dumps)
 
 namespace: database
 
@@ -21,6 +21,15 @@ patches:
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/containers/0/env/0/value
         value: "staging"
+      # Same as production: dumps live on the dedicated backup disk only.
+      # Blanking MINIO_ENDPOINT makes backup.sh skip the MinIO upload and
+      # prune. `test` guards the env index.
+      - op: test
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/2/name
+        value: "MINIO_ENDPOINT"
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/2/value
+        value: ""
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/volumes/0/hostPath/path
         value: "/staging-goapps-backup/postgres"
@@ -33,6 +42,15 @@ patches:
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/containers/0/env/0/value
         value: "staging"
+      # Same as production: dumps live on the dedicated backup disk only.
+      # Blanking MINIO_ENDPOINT makes backup.sh skip the MinIO upload and
+      # prune. `test` guards the env index.
+      - op: test
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/2/name
+        value: "MINIO_ENDPOINT"
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/2/value
+        value: ""
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/volumes/0/hostPath/path
         value: "/staging-goapps-backup/postgres"
@@ -45,6 +63,15 @@ patches:
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/containers/0/env/0/value
         value: "staging"
+      # Same as production: dumps live on the dedicated backup disk only.
+      # Blanking MINIO_ENDPOINT makes backup.sh skip the MinIO upload and
+      # prune. `test` guards the env index.
+      - op: test
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/2/name
+        value: "MINIO_ENDPOINT"
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/2/value
+        value: ""
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/volumes/0/hostPath/path
         value: "/staging-goapps-backup/postgres"
@@ -63,4 +90,6 @@ patches:
         value: "/staging-goapps-backup"
       - op: replace
         path: /spec/jobTemplate/spec/template/spec/containers/0/env/5/value
-        value: "postgres-backups export-files goapps-staging"
+        # postgres-backups dropped: dumps are no longer uploaded to MinIO and
+        # already sit in /staging-goapps-backup/postgres on this same disk.
+        value: "export-files goapps-staging"

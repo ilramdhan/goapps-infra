@@ -12,10 +12,15 @@ spec:
   schedule: "0 3 * * *"
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
+  # Same guards as postgres-backup.yaml: skip runs missed by >1h, and fail a
+  # Job that cannot finish (e.g. ImagePullBackOff) instead of letting it block
+  # every later schedule. A mirror normally takes ~3min.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      activeDeadlineSeconds: 7200
       template:
         spec:
           restartPolicy: OnFailure

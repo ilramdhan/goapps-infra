@@ -20,7 +20,12 @@ data:
     set -Eeuo pipefail
 
     # Configuration
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    # The pod-name suffix makes the filename unique per run. On 2026-10-12 the
+    # three CronJobs fired their missed runs in the same second, all wrote to
+    # one ..._063750.sql.gz and corrupted it. Kept AFTER the timestamp so the
+    # `${ENVIRONMENT}_goapps_*` / `_ppc_db_*` globs and time ordering still hold.
+    RUN_ID="${HOSTNAME##*-}"
+    TIMESTAMP="$(date +%Y%m%d_%H%M%S)_${RUN_ID:-manual}"
     ENVIRONMENT="${ENVIRONMENT:-staging}"
     BACKUP_FILE="/backup/${ENVIRONMENT}_goapps_${TIMESTAMP}.sql.gz"
     PPC_BACKUP_FILE="/backup/${ENVIRONMENT}_ppc_db_${TIMESTAMP}.sql.gz"
@@ -234,11 +239,20 @@ spec:
   schedule: "0 6 * * *"
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
+  # A run missed by more than 1h is skipped instead of fired late. Without it,
+  # deleting stuck Jobs on 2026-10-12 released all three schedules at once.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 1
+      # Hard cap (3h; a production dump took ~37min on 2026-10-12). A Job stuck
+      # in ImagePullBackOff otherwise stays "Running" forever and, with
+      # concurrencyPolicy: Forbid, silently blocks every later schedule -- that
+      # cost 3 days of production backups (2026-10-09..12). Hitting the cap
+      # marks the Job Failed, which the existing backup alert picks up.
+      activeDeadlineSeconds: 10800
       ttlSecondsAfterFinished: 86400
       template:
         spec:
@@ -336,11 +350,20 @@ spec:
   schedule: "0 14 * * *"
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
+  # A run missed by more than 1h is skipped instead of fired late. Without it,
+  # deleting stuck Jobs on 2026-10-12 released all three schedules at once.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 1
+      # Hard cap (3h; a production dump took ~37min on 2026-10-12). A Job stuck
+      # in ImagePullBackOff otherwise stays "Running" forever and, with
+      # concurrencyPolicy: Forbid, silently blocks every later schedule -- that
+      # cost 3 days of production backups (2026-10-09..12). Hitting the cap
+      # marks the Job Failed, which the existing backup alert picks up.
+      activeDeadlineSeconds: 10800
       ttlSecondsAfterFinished: 86400
       template:
         spec:
@@ -438,11 +461,20 @@ spec:
   schedule: "0 22 * * *"
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
+  # A run missed by more than 1h is skipped instead of fired late. Without it,
+  # deleting stuck Jobs on 2026-10-12 released all three schedules at once.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 1
+      # Hard cap (3h; a production dump took ~37min on 2026-10-12). A Job stuck
+      # in ImagePullBackOff otherwise stays "Running" forever and, with
+      # concurrencyPolicy: Forbid, silently blocks every later schedule -- that
+      # cost 3 days of production backups (2026-10-09..12). Hitting the cap
+      # marks the Job Failed, which the existing backup alert picks up.
+      activeDeadlineSeconds: 10800
       ttlSecondsAfterFinished: 86400
       template:
         spec:

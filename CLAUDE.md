@@ -1,6 +1,7 @@
 # CLAUDE.md -- GoApps Infrastructure Repository
 
 > Single source of truth for Claude Code working on `goapps-infra`.
+> Last updated 2026-10-12: backup destinations, MinIO image source, ArgoCD infra sync policy, disk-pressure incident (see §10, §9, §17).
 > Read this before making any changes.
 
 ---
@@ -237,10 +238,10 @@ goapps-infra/
 │   ├── backup/
 │   │   ├── kustomization.yaml
 │   │   ├── cronjobs/                  # Backup CronJobs
-│   │   │   ├── postgres-backup.yaml   # PostgreSQL 3x/day
-│   │   │   ├── minio-backup.yaml      # MinIO daily
+│   │   │   ├── postgres-backup.yaml   # PostgreSQL 3x/day -> backup disk only
+│   │   │   ├── minio-backup.yaml      # MinIO app buckets daily -> backup disk
 │   │   │   └── kustomization.yaml
-│   │   ├── minio/                     # MinIO S3 storage (50Gi, TLS)
+│   │   ├── minio/                     # MinIO S3 storage (50Gi, TLS, image: ghcr.io/coollabsio/minio -- see §10)
 │   │   │   ├── deployment.yaml
 │   │   │   └── kustomization.yaml
 │   │   └── scripts/                   # Backup scripts (currently empty)
@@ -537,8 +538,8 @@ Installed via Helm charts. Configuration in `base/monitoring/helm-values/`.
 
 ### Prometheus (kube-prometheus-stack)
 
-- **Retention**: 30 days
-- **Storage**: 20Gi PVC
+- **Retention**: 15 days **or** 15GB, whichever hits first (`retention` / `retentionSize` in `base/monitoring/helm-values/prometheus-stack.yaml`; an earlier version of this doc said 30 days)
+- **Storage**: 20Gi PVC (on the root disk -- ~6.4G used on production, 2026-10-12)
 - **ServiceMonitor**: Auto-discovery enabled for **all** ServiceMonitors in **all** namespaces. `serviceMonitorSelectorNilUsesHelmValues: false` is set in `base/monitoring/helm-values/prometheus-stack.yaml`, so a `release: prometheus` label is **NOT** required (an earlier version of this doc claimed it was — it is false for this cluster).
 - **Scrape interval**: 30s default
 
@@ -749,12 +750,14 @@ Frontend uses HTTP health checks on port 3000.
 
 ### Image Pull
 
-All images come from `ghcr.io/mutugading/` and require `imagePullSecrets`:
+All **application** images come from `ghcr.io/mutugading/` and require `imagePullSecrets`:
 
 ```yaml
 imagePullSecrets:
   - name: ghcr-secret
 ```
+
+**Third-party images are not guaranteed to stay pullable.** MinIO deleted `minio/minio` and `minio/mc` from Docker Hub (Sept 2026) and then closed anonymous pulls on `quay.io/minio/*` (401); `dl.min.io` binaries return 410. A node keeps running off its **cached** copy, so the breakage stays invisible until kubelet garbage-collects the image (e.g. under DiskPressure) -- then every pod or Job using it sits in `ImagePullBackOff`. See §10 "MinIO image source" for what the backup stack uses now.
 
 ---
 
@@ -783,10 +786,12 @@ Located in `argocd/apps/`:
 | `iam-service-production` | `services/iam-service/overlays/production` | Manual |
 | `ppc-service-production` | `services/ppc-service/overlays/production` | Manual |
 | `frontend-production` | `services/frontend/overlays/production` | Manual |
-| `infra-backup-staging` | Staging backup overlay | Auto |
-| `infra-minio-staging` | Staging MinIO overlay | Auto |
-| `infra-backup-production` | Production backup overlay | Manual |
-| `infra-minio-production` | Production MinIO overlay | Manual |
+| `infra-backup` (staging cluster) | `overlays/staging/backup` | Auto (prune + selfHeal) |
+| `infra-minio` (staging cluster) | `overlays/staging/minio` | Auto (prune + selfHeal) |
+| `infra-backup` (production cluster) | `overlays/production/backup` | **Auto (prune + selfHeal)** |
+| `infra-minio` (production cluster) | `overlays/production/minio` | **Auto (prune + selfHeal)** |
+
+⚠️ **The infra backup/MinIO Applications are auto-sync on production too** (`argocd/apps/production/infra-{backup,minio}.yaml`), and are named `infra-backup` / `infra-minio` in *both* clusters -- no `-staging`/`-production` suffix. A merge to `main` touching `base/backup/` or the backup/minio overlays reaches production within ~3 min **without** a manual sync, so test those changes on staging first. It also means a `kubectl edit` on a backup CronJob is reverted by selfHeal -- change it in git. An earlier version of this table listed the production ones as Manual.
 
 ⚠️ **`argocd/apps/shared/infra-apps.yaml` declares exactly two Applications: `infra-database` and `infra-observability`.** An earlier version of this doc claimed it also covered monitoring and image-updater — it does **not**.
 
@@ -829,14 +834,31 @@ retry:
 
 | Target | Frequency | Schedule (WIB) | Retention | Destinations |
 |--------|-----------|----------------|-----------|-------------|
-| PostgreSQL | 3x daily | 06:00, 14:00, 22:00 | 7 days | MinIO + Backblaze B2 + VPS disk |
-| MinIO buckets | Daily | 03:00 | 7 days | VPS disk |
+| PostgreSQL | 3x daily | 06:00, 14:00, 22:00 | 7 days | **Dedicated backup disk only** (+ Backblaze B2 only if the optional `s3-cloud-credentials` secret exists) |
+| MinIO app buckets (`export-files`, `goapps-{env}`) | Daily | 03:00 | Mirror (no prune) | Dedicated backup disk |
+
+**Backup disk** = a separate block device mounted at `/goapps-backup` (production, `sdb`) / `/staging-goapps-backup` (staging). It is **not** the root disk that holds the PVCs.
+
+**Postgres dumps no longer go to MinIO** (both envs, since 2026-10-08/12). Both backup overlays blank `MINIO_ENDPOINT` for the three postgres CronJobs, so `backup.sh` skips the MinIO upload and prune, and `postgres-backups` is dropped from `MINIO_BUCKETS`. Reason: the `postgres-backups` bucket lived inside the MinIO PVC on the **root** disk; at ~24G it pushed production into DiskPressure (see §17). The bucket is left empty, not deleted.
+
+**Backblaze B2 is optional and silent.** The `S3_*` env vars use `optional: true` secret refs, so with no `s3-cloud-credentials` secret the upload is skipped with no log line and no error. Do not assume an off-host copy exists -- check `kubectl get secret s3-cloud-credentials -n database` and look for `Uploaded to Cloud S3` in a job log.
+
+### MinIO image source
+
+Every MinIO reference (`base/backup/minio/deployment.yaml`, the `copy-mc` init container in the three postgres CronJobs, `minio-backup.yaml`, `minio-ilm-setup.yaml`) uses
+`ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c...` -- an anonymous public rebuild of the upstream AGPL release with the same layout as the old `minio/minio` (`/usr/bin/minio`, `/usr/bin/mc`, `sh`, `cp`), so it also serves as the `mc` image. It is pinned by digest because it is a **third-party mirror**; the planned follow-up is to copy it to `ghcr.io/mutugading/minio` and point there. Do **not** switch to `quay.io/minio/aistor/*` (commercial AIStor) or `cgr.dev/chainguard/minio` (non-root, no shell/`cp` -- breaks `copy-mc`) without reworking the manifests.
 
 ### Backup CronJobs
 
 Defined in `base/backup/cronjobs/`:
 - `postgres-backup.yaml` -- Three CronJobs (morning, afternoon, evening)
 - `minio-backup.yaml` -- Daily MinIO bucket backup
+
+Guards on every backup CronJob (added 2026-10-12, see §17):
+- `activeDeadlineSeconds` -- 3h postgres / 2h minio mirror. A Job that cannot finish (e.g. `ImagePullBackOff`) turns **Failed** instead of sitting "Running" forever. With `concurrencyPolicy: Forbid`, a forever-Running Job silently skips every later schedule.
+- `startingDeadlineSeconds: 3600` -- a run missed by more than 1h is skipped, not fired late. Stops several CronJobs firing catch-up runs at once.
+- Dump filename = `${ENVIRONMENT}_{goapps,ppc_db}_<YYYYmmdd_HHMMSS>_<pod-hash>.sql.gz`. The pod-hash suffix keeps concurrent runs from ever sharing a file; older files have no suffix. Prefix globs (`*_goapps_*`) and `ls -t` ordering still work.
+- A dump is considered good only when the log shows `VERIFY OK ... completion marker present` and the job ends `Backup completed successfully!`. Local retention (`find -mtime +7 -delete`) runs **only** after a fully successful run, so a run of failures also means old files pile up.
 
 ### Manual Backup
 
@@ -845,13 +867,21 @@ make backup-now
 # Creates a one-off Job from the morning CronJob template
 ```
 
+Manual-run pitfalls (all hit on 2026-10-12):
+- **Never delete a running backup Job** to "clean up" -- the pod is killed mid-`pg_dump` and leaves a truncated `.sql.gz` (no shell trap removes it). Check with `gzip -t`; delete only files that fail it.
+- `kubectl logs -f` right after `create job` fails with `PodInitializing` while the `copy-mc` init container runs -- wait with `kubectl wait --for=condition=Ready pod -l job-name=<job>` first. A `failed to create fsnotify watcher: too many open files` from `logs -f` is the **host's** inotify limit, not the backup; raised on production via `/etc/sysctl.d/99-inotify.conf` (`max_user_instances=512`, `max_user_watches=524288`).
+- Do not start a manual run next to a scheduled one (06:00/14:00/22:00 WIB) -- two `pg_dump`s double the load on `postgres-0`. A production `goapps` dump took ~37 min at 1.8G (2026-10-12) and grows ~0.5G per 10 days.
+
 ### Backup Verification (Weekly Checklist)
 
 ```bash
 kubectl get cronjobs -n database              # Check schedules and last run
-kubectl get jobs -n database                  # Check recent job status
-# Verify MinIO bucket contents
-# Verify Backblaze B2 console
+kubectl get jobs -n database                  # Check recent job status -- anything not Complete is a problem
+kubectl get pods -n database | grep -E 'ImagePull|Init:|Error'   # must be empty
+gzip -t "$(ls -t /goapps-backup/postgres/*_goapps_*.sql.gz | head -1)" && echo OK   # newest dump is intact
+find /goapps-backup/postgres -name '*.sql.gz' -mtime +7 | wc -l                     # 0 = retention is running
+# MinIO bucket `postgres-backups` should stay at 0B (dumps are no longer uploaded)
+# Backblaze B2 console -- only if s3-cloud-credentials exists (see above)
 # Check VPS disk (path differs per host -- see note below):
 #   production: ls -la /goapps-backup/postgres/
 #   staging:    ls -la /staging-goapps-backup/postgres/
@@ -1278,13 +1308,13 @@ These are hard-won lessons from production operations:
 | RabbitMQ | Needs minimum 500m CPU, 512Mi memory, 30s probe timeouts. Always add `startupProbe`. |
 | Frontend (Next.js) | Minimum 500m CPU limit or pod will cycle continuously. **500m is the failure floor, not a target** -- both overlays now set 750m. A CPU limit is a throttling ceiling, not a scheduler reservation, so headroom above the floor costs no node allocatable. |
 | Dirty migrations | Fix with `UPDATE schema_migrations_{service} SET dirty = false` in psql. |
-| Old K8s Jobs | Failed Jobs from old CronJob runs trigger Grafana backup alerts. Delete stale jobs manually. |
+| Old K8s Jobs | Failed Jobs from old CronJob runs trigger Grafana backup alerts. Delete stale jobs manually. A Job's pod spec is frozen at creation: Jobs created **before** an image fix keep pulling the old image forever -- delete them after the fix lands. |
 | ArgoCD CLI | Requires port-forward first. Production has no CLI -- use the ArgoCD dashboard. |
 | Kustomize commonLabels | Adding to existing deployments breaks them (immutable label selector). Only set on initial creation. |
 | VPA CRD | Must be installed in the cluster before any VPA resource is referenced in `kustomization.yaml`. |
 | Redis emptyDir | Data is lost on pod restart. Do not store anything that cannot be regenerated. |
 | NetworkPolicies | Required by RULES.md but not yet implemented -- known gap. |
-| Backup CronJob env | Currently hardcoded to "production" label even in staging -- known bug. |
+| ~~Backup CronJob env~~ | **Resolved.** The base sets `ENVIRONMENT=base`; `overlays/{staging,production}/backup/kustomization.yaml` patch it to `staging` / `production` (env index 0), and staging dumps are named `staging_*.sql.gz` (verified 2026-10-12). Applying the base without an overlay is still wrong (see "Backup path targeting"). |
 | Pod Disruption Budgets | None defined -- needed for StatefulSets (PostgreSQL, RabbitMQ, MinIO) to survive node drains safely. |
 | Resource Quotas | No per-namespace ResourceQuota resources -- risk of one namespace exhausting cluster resources. |
 | Queue-driven HPA fan-out | `finance-cost-worker` scales on an **external** metric (RabbitMQ queue depth), so it can jump to `maxReplicas` with no CPU signal at all. At its old cap (base 50 / prod 20) x 768Mi it alone committed 15360Mi on a ~16Gi node. Memory **requests** for that fan-out are only ~5120Mi, so the scheduler admits every pod and the node OOM-kills instead -- which is how the 2026-08-13 incident took out Grafana in the `monitoring` namespace alongside the finance workers. Capped at prod 7 / staging 4. **Always multiply `maxReplicas x memory limit` against the node before merging an HPA.** |
@@ -1295,3 +1325,7 @@ These are hard-won lessons from production operations:
 | Dead overlay files | `overlays/staging/backup-patch.yaml` and `overlays/production/backup-patch.yaml` are **not referenced by any kustomization** (the live patches are in `overlays/{staging,production}/backup/kustomization.yaml`). They are stale leftovers -- do not edit them expecting an effect; they are candidates for deletion. |
 | RabbitMQ clustering | Single pod, no clustering -- SPOF for the message queue. |
 | Jaeger storage | In-memory only (**5000** trace cap, `MEMORY_MAX_TRACES`) -- consider persistent storage for production. |
+| Root-disk DiskPressure (2026-10-08) | Production root disk (77G) passed kubelet's ~15%-free eviction threshold. The node got a `disk-pressure` taint, pods were evicted and could not reschedule (single node), **ingress-nginx died**, and goapps/ArgoCD/Grafana all returned `ERR_CONNECTION_REFUSED` while MinIO (direct NodePort 30090) stayed up. Cause: all PVCs (`local-path`, `/var/lib/rancher/k3s/storage`) share the root disk, and the MinIO PVC held ~24G of redundant postgres dumps. Fix: stopped uploading dumps to MinIO (§10). Signature to recognise: `FreeDiskSpaceFailed ... only found 0 bytes eligible to free` events (image GC cannot help when PVC data is the cause). `du` on `/var` double-counts PVCs via the kubelet bind mounts -- measure `/var/lib/rancher/k3s/storage/*` with `sudo sh -c 'du -sh ...'`. Root disk was 57-65% afterwards; Postgres PVC is 14G of 20Gi and growing. No disk alert exists yet. |
+| MinIO images gone from public registries (2026-10-08..12) | See §8 "Image Pull" / §10 "MinIO image source". The DiskPressure GC above evicted the cached `minio/mc`, so all postgres backup Jobs stuck in `Init:ImagePullBackOff`; with `Forbid` they blocked every schedule and production had **no backup for 3 days**. The interim `quay.io` repoint also failed (401). Fixed by the ghcr mirror + the CronJob deadlines in §10. |
+| Catch-up runs collide (2026-10-12) | Deleting the stuck Jobs released all three missed postgres schedules in the **same second**; they wrote one `..._063750.sql.gz` and corrupted it (`gzip: invalid compressed data`). Fixed by `startingDeadlineSeconds` + the pod-hash filename suffix (§10). |
+| MinIO / ingress TLS | Wildcard `*.mutugading.com` (Sectigo) renewed 2026-10, `notAfter` **2027-02-12**. Procedure: `docs/runbooks/ssl-renewal.md`. `minio-tls` uses keys `public.crt`/`private.key` (generic secret), not `tls.crt`/`tls.key`. Verify MinIO on 30090 **and** 30091; `mc` "certificate will expire" warnings in an old Job log predate the MinIO pod restart and are not current. |
