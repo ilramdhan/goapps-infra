@@ -1,4 +1,8 @@
-# ERP cost integration (P0-T16) — feature flags, all OFF.
+# ERP cost integration (P0-T16) — feature flags.
+# STAGING TEST MODE (2026-10-12): push + valuation ON with writer "fake", so
+# the whole lifecycle (load demand -> ... -> VALUATED) can be exercised in
+# staging WITHOUT any Oracle write: the fake writer is in-memory, and the
+# production guard refuses "fake" in goapps-production. Approve stays OFF.
 # ERP_WRITER_MODE: disabled | fake | oracle. staging = "fake".
 #   staging uses "fake" until M-ERP-1..3 are deployed on the ERP side;
 #   production stays "disabled". The Oracle writer secret (oracle-if-credentials,
@@ -16,10 +20,15 @@ spec:
           env:
             - name: ERP_WRITER_MODE
               value: "fake"
+            # Read ADJ demand straight from OT_ADJ_HEAD/ITEM with the existing
+            # read-only Oracle user (SELECT only), until the DBA creates view
+            # V_GOAPPS_ADJ_DEMAND (M-ERP-1b). Refused in goapps-production.
+            - name: ERP_DEMAND_SOURCE
+              value: "base_tables"
             - name: ERP_PUSH_ENABLED
-              value: "false"
+              value: "true"
             - name: ERP_VALUATION_ENABLED
-              value: "false"
+              value: "true"
             - name: ERP_ADJ_APPROVE_ENABLED
               value: "false"
             # P5-T11 (U-2): monthly read/compute auto-run master switch, OFF.
