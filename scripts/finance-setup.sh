@@ -17,6 +17,8 @@ set -euo pipefail
 NAMESPACE="${1:?Usage: $0 <namespace> [migrate|seed|backfill]}"
 ACTION="${2:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/db-guard.sh
+source "$SCRIPT_DIR/lib/db-guard.sh"
 BASE_DIR="$SCRIPT_DIR/../services/finance-service/base"
 
 # Get image tag from running deployment
@@ -37,6 +39,13 @@ run_job() {
   local job_name="$1"
   local job_file="$2"
   local component="$3"
+  local timeout="${4:-120s}"
+  local is_migrate=0
+  [ "$component" = "migration" ] && is_migrate=1
+  if [ "$is_migrate" = "1" ]; then
+    guard_no_backup_running || exit 1
+    timeout="${4:-300s}"
+  fi
 
   echo "==> Deleting old $job_name job (if exists)..."
   kubectl delete job "$job_name" -n "$NAMESPACE" --ignore-not-found
@@ -50,7 +59,6 @@ run_job() {
 
   echo "==> Logs for $job_name:"
   echo "---"
-  local timeout="${4:-120s}"
   kubectl wait --for=condition=complete job/"$job_name" -n "$NAMESPACE" --timeout="$timeout" &
   local wait_pid=$!
   sleep 2
@@ -65,6 +73,9 @@ run_job() {
   else
     echo "==> $job_name: FAILED"
     echo "    Check: kubectl describe job $job_name -n $NAMESPACE"
+    if [ "$is_migrate" = "1" ]; then
+      migrate_failure_diagnostics "$job_name" "finance" "$NAMESPACE"
+    fi
     exit 1
   fi
   echo ""

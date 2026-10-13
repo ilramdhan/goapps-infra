@@ -743,9 +743,9 @@ git add . && git commit -m "feat: add new-service" && git push
 
 | CronJob | Time (WIB) | Timezone |
 |---------|------------|----------|
-| `postgres-backup-morning` | 06:00 | Asia/Jakarta |
-| `postgres-backup-afternoon` | 14:00 | Asia/Jakarta |
-| `postgres-backup-night` | 22:00 | Asia/Jakarta |
+| `postgres-backup-morning` | 04:00 | Asia/Jakarta |
+| `postgres-backup-afternoon` | 12:00 | Asia/Jakarta |
+| `postgres-backup-night` | 20:00 | Asia/Jakarta |
 | `minio-backup` | 03:00 | Asia/Jakarta |
 
 ### Backup Locations
