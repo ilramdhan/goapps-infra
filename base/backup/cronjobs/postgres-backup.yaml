@@ -1,6 +1,6 @@
 # PostgreSQL Backup CronJobs
-# Schedule: 3x daily (6 AM, 2 PM, 10 PM) + sync to cloud
 # Retention: 7 days local, 7 days cloud
+# Schedule: 04:00 / 12:00 / 20:00 WIB - low-traffic windows, evenly 8h apart (max data loss 8h)
 
 # Backup Scripts ConfigMap
 apiVersion: v1
@@ -236,7 +236,7 @@ metadata:
   name: postgres-backup-morning
   namespace: database
 spec:
-  schedule: "0 6 * * *"
+  schedule: "0 4 * * *"    # 04:00 WIB - before morning traffic (07:00)
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
   # A run missed by more than 1h is skipped instead of fired late. Without it,
@@ -347,7 +347,7 @@ metadata:
   name: postgres-backup-afternoon
   namespace: database
 spec:
-  schedule: "0 14 * * *"
+  schedule: "0 12 * * *"   # 12:00 WIB - lunch window (12:00-13:00); ~40 min dump
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
   # A run missed by more than 1h is skipped instead of fired late. Without it,
@@ -458,7 +458,7 @@ metadata:
   name: postgres-backup-night
   namespace: database
 spec:
-  schedule: "0 22 * * *"
+  schedule: "0 20 * * *"   # 20:00 WIB - after office hours (17:00+); even 8h RPO
   timeZone: "Asia/Jakarta"
   concurrencyPolicy: Forbid
   # A run missed by more than 1h is skipped instead of fired late. Without it,

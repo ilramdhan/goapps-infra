@@ -46,7 +46,7 @@ guard_no_backup_running() {
       sleep 30; waited=$((waited + 30)); continue
     fi
     echo "ERROR: refusing to migrate while a postgres backup is running (pg_dump holds locks that block"
-    echo "       golang-migrate's TRUNCATE/ALTER). Job start time(s) above (UTC); backups run 06:00/14:00/22:00."
+    echo "       golang-migrate's TRUNCATE/ALTER). Job start time(s) above (UTC); backups run 04:00/12:00/20:00 WIB (~40 min each)."
     echo "       Next steps: wait for it to finish (kubectl get jobs -n $DB_NS), re-run with WAIT_FOR_BACKUP=1,"
     echo "       or override with FORCE_MIGRATE=1 (migrate Job has lock_timeout=10s and will fail fast)."
     return 1

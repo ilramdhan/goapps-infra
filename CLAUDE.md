@@ -834,7 +834,7 @@ retry:
 
 | Target | Frequency | Schedule (WIB) | Retention | Destinations |
 |--------|-----------|----------------|-----------|-------------|
-| PostgreSQL | 3x daily | 06:00, 14:00, 22:00 | 7 days | **Dedicated backup disk only** (+ Backblaze B2 only if the optional `s3-cloud-credentials` secret exists) |
+| PostgreSQL | 3x daily | 04:00, 12:00, 20:00 (low-traffic, 8h apart) | 7 days | **Dedicated backup disk only** (+ Backblaze B2 only if the optional `s3-cloud-credentials` secret exists) |
 | MinIO app buckets (`export-files`, `goapps-{env}`) | Daily | 03:00 | Mirror (no prune) | Dedicated backup disk |
 
 **Backup disk** = a separate block device mounted at `/goapps-backup` (production, `sdb`) / `/staging-goapps-backup` (staging). It is **not** the root disk that holds the PVCs.
@@ -870,7 +870,7 @@ make backup-now
 Manual-run pitfalls (all hit on 2026-10-12):
 - **Never delete a running backup Job** to "clean up" -- the pod is killed mid-`pg_dump` and leaves a truncated `.sql.gz` (no shell trap removes it). Check with `gzip -t`; delete only files that fail it.
 - `kubectl logs -f` right after `create job` fails with `PodInitializing` while the `copy-mc` init container runs -- wait with `kubectl wait --for=condition=Ready pod -l job-name=<job>` first. A `failed to create fsnotify watcher: too many open files` from `logs -f` is the **host's** inotify limit, not the backup; raised on production via `/etc/sysctl.d/99-inotify.conf` (`max_user_instances=512`, `max_user_watches=524288`).
-- Do not start a manual run next to a scheduled one (06:00/14:00/22:00 WIB) -- two `pg_dump`s double the load on `postgres-0`. A production `goapps` dump took ~37 min at 1.8G (2026-10-12) and grows ~0.5G per 10 days.
+- Do not start a manual run next to a scheduled one (04:00/12:00/20:00 WIB) -- two `pg_dump`s double the load on `postgres-0`. A production `goapps` dump took ~37 min at 1.8G (2026-10-12) and grows ~0.5G per 10 days.
 
 ### Backup Verification (Weekly Checklist)
 
