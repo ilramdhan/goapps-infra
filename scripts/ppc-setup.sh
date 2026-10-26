@@ -13,7 +13,7 @@
 #   ./scripts/ppc-setup.sh goapps-production seed     # seed only
 #
 # Prerequisites:
-#   - postgres-secret must exist in the target namespace (used by createdb)
+#   - ppc-db-secret (OWNER_*) must exist in the target namespace after cutover (postgres-secret before)
 #   - ppc-service deployment must be running for the migrate/seed actions
 #     (createdb deliberately does NOT require it — ppc_db must exist first)
 
@@ -24,6 +24,8 @@ ACTION="${2:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/db-guard.sh
 source "$SCRIPT_DIR/lib/db-guard.sh"
+# shellcheck source=lib/render-job.sh
+source "$SCRIPT_DIR/lib/render-job.sh"
 BASE_DIR="$SCRIPT_DIR/../services/ppc-service/base"
 
 # Resolved lazily by require_image_tag(); createdb runs before any ppc-service
@@ -63,7 +65,7 @@ run_job() {
   kubectl delete job "$job_name" -n "$NAMESPACE" --ignore-not-found
 
   echo "==> Applying $job_name job..."
-  sed "s|IMAGE_TAG|$IMAGE_TAG|" "$job_file" | kubectl apply -n "$NAMESPACE" -f -
+  render_job "ppc-service" "$job_name" "$job_file" | sed "s|IMAGE_TAG|$IMAGE_TAG|" | kubectl apply -n "$NAMESPACE" -f -
 
   echo "==> Waiting for $job_name to start..."
   kubectl wait --for=condition=Ready pod -l "component=$component" \

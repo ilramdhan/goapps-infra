@@ -61,15 +61,11 @@ PORT stays 5432 and SSLMODE stays `disable` (pod -> pgbouncer hop). `DATABASE_BI
 
 ## 3. One-off jobs (applied manually, not ArgoCD-synced)
 
-Rendered from `services/<svc>/overlays/<env>/jobs` (new, references base files, needs
-`--load-restrictor LoadRestrictionsNone`):
-
-```bash
-kustomize build --load-restrictor LoadRestrictionsNone services/finance-service/overlays/staging/jobs \
-  | sed "s|IMAGE_TAG|<tag>|" | kubectl apply -f -
-```
-Jobs are all in one build per service; delete the ones you do not want to run
-(`kubectl delete job ... --ignore-not-found` before re-applying).
+Use the setup scripts as before (`./scripts/{finance,iam,ppc}-setup.sh <namespace> [action]`).
+When `services/<svc>-service/overlays/<env>/jobs/kustomization.yaml` exists (env derived
+from the namespace), the scripts render that overlay (`kustomize build --load-restrictor
+LoadRestrictionsNone`, needs kustomize in PATH) and apply ONLY the one Job being run; otherwise
+they fall back to the base job file. Helper: `scripts/lib/render-job.sh`.
 
 | Job | Old | New |
 |---|---|---|
