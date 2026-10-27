@@ -1,5 +1,5 @@
 # PostgreSQL Backup CronJobs
-# Retention: 7 days local, 7 days cloud
+# Retention: 5 days local (disk-bound, see RETENTION), 7 days cloud
 # Schedule: 04:00 / 12:00 / 20:00 WIB - low-traffic windows, evenly 8h apart (max data loss 8h)
 
 # Backup Scripts ConfigMap
@@ -113,14 +113,22 @@ data:
 
     echo "[$(date)] Starting PostgreSQL backup..."
 
-    # Create backup - pipefail now makes a pg_dump failure inside this pipe fatal
-    PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+    # Create backup. On 2026-10-27 the backup disk filled up mid-dump: set -e
+    # exited on the failed pipe and left a 2.4 GB truncated file plus 0-byte
+    # files behind, which kept the disk full for every later run. A failed dump
+    # now removes its own artefact before exiting.
+    if ! PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
       -h postgres-0.postgres.database.svc.cluster.local \
       -U postgres \
       -d goapps \
       --format=plain \
       --no-owner \
-      --no-acl | gzip > "${BACKUP_FILE}"
+      --no-acl | gzip > "${BACKUP_FILE}"; then
+      echo "[$(date)] FATAL: goapps dump failed. Removing the partial artefact." >&2
+      echo "[$(date)] FATAL: no old backup has been deleted - existing backups remain intact." >&2
+      rm -f "${BACKUP_FILE}"
+      exit 1
+    fi
 
     echo "[$(date)] Backup created: ${BACKUP_FILE}"
     echo "[$(date)] Size: $(du -h "${BACKUP_FILE}" | cut -f1)"
@@ -209,9 +217,12 @@ data:
         || echo "[$(date)] WARNING: MinIO retention prune failed" >&2
     fi
 
-    # Cleanup old local backups (keep 7 days)
+    # Cleanup old local backups (keep 5 days). 7 days no longer fits: the
+    # production goapps dump grew to ~2.9 GB, x3/day x ~8 days kept by
+    # `-mtime +7` = ~70 GB on a 59 GB disk (full on 2026-10-27). 5 days ~= 45 GB.
+    # MinIO and cloud copies still keep 7 days.
     echo "[$(date)] Cleaning up old backups..."
-    find /backup -name "*.sql.gz" -mtime +7 -delete
+    find /backup -name "*.sql.gz" -mtime +4 -delete
 
     echo "[$(date)] Backup completed successfully!"
 
