@@ -19,6 +19,8 @@ ACTION="${2:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/db-guard.sh
 source "$SCRIPT_DIR/lib/db-guard.sh"
+# shellcheck source=lib/render-job.sh
+source "$SCRIPT_DIR/lib/render-job.sh"
 BASE_DIR="$SCRIPT_DIR/../services/finance-service/base"
 
 # Get image tag from running deployment
@@ -51,7 +53,7 @@ run_job() {
   kubectl delete job "$job_name" -n "$NAMESPACE" --ignore-not-found
 
   echo "==> Applying $job_name job..."
-  sed "s|IMAGE_TAG|$IMAGE_TAG|" "$job_file" | kubectl apply -n "$NAMESPACE" -f -
+  render_job "finance-service" "$job_name" "$job_file" | sed "s|IMAGE_TAG|$IMAGE_TAG|" | kubectl apply -n "$NAMESPACE" -f -
 
   echo "==> Waiting for $job_name to start..."
   kubectl wait --for=condition=Ready pod -l "component=$component" \
