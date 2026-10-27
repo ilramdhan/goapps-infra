@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: database
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml
+
+# Template ini with VPS_HOST placeholder; overlays replace this ConfigMap.
+configMapGenerator:
+  - name: pgbouncer-vps-config
+    files:
+      - pgbouncer.ini
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+commonLabels:
+  app.kubernetes.io/name: pgbouncer-vps
+  app.kubernetes.io/component: connection-pooler
+  app.kubernetes.io/part-of: goapps

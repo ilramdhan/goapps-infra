@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer-vps
+  namespace: database
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pgbouncer-vps
