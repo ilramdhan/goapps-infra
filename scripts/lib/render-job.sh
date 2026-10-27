@@ -12,7 +12,12 @@ render_job() {
   if [ -f "$dir/kustomization.yaml" ]; then
     echo "==> Using env job overlay: services/$svc/overlays/$env/jobs" >&2
     local out
-    out="$(kustomize build --load-restrictor LoadRestrictionsNone "$dir")" || return 1
+    # nodes ship kubectl but not standalone kustomize; kubectl kustomize takes the same flags
+    if command -v kustomize >/dev/null 2>&1; then
+      out="$(kustomize build --load-restrictor LoadRestrictionsNone "$dir")" || return 1
+    else
+      out="$(kubectl kustomize --load-restrictor LoadRestrictionsNone "$dir")" || return 1
+    fi
     printf '%s\n' "$out" | awk -v want="$job_name" '
       function flush() { if (doc != "" && kind_ok && name_ok) { printf "%s", doc; found=1 } doc=""; kind_ok=0; name_ok=0 }
       /^---[[:space:]]*$/ { flush(); next }
