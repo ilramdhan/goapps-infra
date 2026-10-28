@@ -399,6 +399,7 @@ goapps-infra/
 │   ├── INFRA_STABILITY_GUIDE.md
 │   ├── LOCAL_VALIDATION_GUIDE.md
 │   ├── vps-reset-guide.md
+│   ├── secrets-env-inventory.md       # Secret keys -> env vars per workload (names only)
 │   └── runbooks/
 │       ├── ppc-service-deployment.md      # New-service deployment, end to end
 │       ├── database-port-forward.md       # Tunnel goapps / ppc_db to localhost
@@ -992,10 +993,16 @@ kubectl create secret generic minio-secret -n minio \
 | `grafana-smtp-secret` | `monitoring` | password |
 | `goapps-internal-token` | `goapps-staging`, `goapps-production` | INTERNAL_SERVICE_TOKEN |
 | `ppc-internal-token` | `goapps-staging`, `goapps-production` | PPC_INTERNAL_TOKEN |
-| `oracle-credentials` | `goapps-staging`, `goapps-production` | ORACLE_HOST, ORACLE_PORT, ORACLE_SERVICE, ORACLE_USER, ORACLE_PASSWORD |
+| `oracle-credentials` | `goapps-staging`, `goapps-production` | ORACLE_HOST, ORACLE_PORT, ORACLE_SERVICE, ORACLE_USER, ORACLE_PASSWORD, ORACLE_MGTHRIS_USER/PASSWORD, ORACLE_MGTAPPS_USER/PASSWORD, ORACLE_MGTDAT_USER/PASSWORD (production-verified; HRIS = MGTHRIS) |
+| `finance-db-secret`, `iam-db-secret`, `ppc-db-secret` | `goapps-staging` | APP_USER, APP_PASSWORD (per-service app role; production still uses `postgres-secret`) |
+| `goapps-chat-secret` | `goapps-staging`, `goapps-production` | CHAT_MASTER_KEY |
+| `rabbitmq-secret` | `database`, `goapps-staging`, `goapps-production` | RABBITMQ_USER, RABBITMQ_PASSWORD |
+| `smtp-secret` | `goapps-staging`, `goapps-production` | SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM_ADDRESS |
 | `git-creds` | `argocd` | Used by ArgoCD Image Updater for git write-back |
 
 `ppc-internal-token`'s single key `PPC_INTERNAL_TOKEN` is consumed twice by both `ppc-service` `deployment.yaml` and `seed-job.yaml` — as `PPC_INTERNAL_TOKEN` and as `PPC_JWT_SERVICE_SECRET`. Its **value must equal** the `INTERNAL_SERVICE_TOKEN` in `goapps-internal-token` in the same namespace, because finance/IAM validate the incoming token against their own. Different value per environment. See `docs/runbooks/ppc-service-deployment.md`.
+
+**Full env var → secret key mapping per workload** (e.g. `ORACLE_HRIS_USER` ← `oracle-credentials/ORACLE_MGTHRIS_USER`): `docs/secrets-env-inventory.md`. Check it before adding an env var or secret -- reuse an existing key instead of guessing a name, and update it in the same PR.
 
 ### Referencing Secrets in Deployments
 
